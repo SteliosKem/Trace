@@ -63,7 +63,7 @@ function TitleBar() {
         <span onClick={minimize} className="dot min" />
         <span onClick={maximize} className="dot max" />
       </div>
-      <div className="tabs">
+      <div className="tabs" data-tauri-drag-region>
         {tabs.map((t) => (
           <TabChip key={t.id} tab={t} />
         ))}
@@ -340,13 +340,6 @@ function HomeIcon() {
   return (
     <svg viewBox="0 0 16 16" width="12" height="12" fill="none">
       <path d="M2 8 8 3l6 5v6H2V8z" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  );
-}
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
-      <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   );
 }
