@@ -1,15 +1,9 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { SearchIcon, ChipIcon, GearIcon, PlayIcon, StopIcon, FolderIconSm, EyeIcon, DiffIcon, RustIcon, CodeIcon, DocIcon } from "./Icons";
 
-type Tab = { id: string; label: string; icon: TabIcon; active?: boolean };
-type TabIcon = "doc" | "preview" | "folder" | "diff" | "rust" | "code";
+export type Tab = { id: string; label: string; icon: TabIcon; active?: boolean };
+export type TabIcon = "doc" | "preview" | "folder" | "diff" | "rust" | "code";
 
-const tabs: Tab[] = [
-    { id: "FullAdder", label: "Full Adder", icon: "doc" },
-    { id: "preview", label: "preview", icon: "preview" },
-    { id: "terax", label: "Trace", icon: "folder", active: true },
-    { id: "physics", label: "physics-engine", icon: "folder" },
-];
 
 function TabIconEl({ kind }: { kind: TabIcon }) {
     switch (kind) {
@@ -37,7 +31,12 @@ function TabChip({ tab }: { tab: Tab }) {
         </div>
     );
 }
-function TitleBar() {
+interface TitleBarProps {
+    tabs?: Tab[];
+    empty?: boolean;
+}
+
+function TitleBar({ tabs = [], empty = false }: TitleBarProps) {
     const appWindow = getCurrentWindow();
 
     function minimize() { appWindow.minimize(); }
@@ -47,6 +46,17 @@ function TitleBar() {
     }
 
     function close() { appWindow.close(); }
+
+    if (empty) return (
+        <header className="titlebar" data-tauri-drag-region>
+            <div className="traffic">
+                <span onClick={close} className="dot close" />
+                <span onClick={minimize} className="dot min" />
+                <span onClick={maximize} className="dot max" />
+            </div>
+        </header>
+    )
+
     return (
         <header className="titlebar" data-tauri-drag-region>
             <div className="traffic">
