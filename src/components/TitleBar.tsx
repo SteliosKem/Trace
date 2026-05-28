@@ -22,21 +22,47 @@ function TabIconEl({ kind }: { kind: TabIcon }) {
     }
 }
 
-function TabChip({ tab }: { tab: Tab }) {
+function TabChip({
+    tab,
+    onActivate,
+    onClose,
+}: {
+    tab: Tab;
+    onActivate?: (id: string) => void;
+    onClose?: (id: string) => void;
+}) {
     return (
-        <div className={"tab" + (tab.active ? " active" : "")}>
+        <div
+            className={"tab" + (tab.active ? " active" : "")}
+            onClick={() => onActivate?.(tab.id)}
+        >
             <TabIconEl kind={tab.icon} />
             <span className="tab-label">{tab.label}</span>
-            <span className="tab-close">×</span>
+            <span
+                className="tab-close"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onClose?.(tab.id);
+                }}
+            >
+                ×
+            </span>
         </div>
     );
 }
 interface TitleBarProps {
     tabs?: Tab[];
     empty?: boolean;
+    onActivateTab?: (id: string) => void;
+    onCloseTab?: (id: string) => void;
 }
 
-function TitleBar({ tabs = [], empty = false }: TitleBarProps) {
+function TitleBar({
+    tabs = [],
+    empty = false,
+    onActivateTab,
+    onCloseTab,
+}: TitleBarProps) {
     const appWindow = getCurrentWindow();
 
     function minimize() { appWindow.minimize(); }
@@ -66,7 +92,12 @@ function TitleBar({ tabs = [], empty = false }: TitleBarProps) {
             </div>
             <div className="tabs" data-tauri-drag-region>
                 {tabs.map((t) => (
-                    <TabChip key={t.id} tab={t} />
+                    <TabChip
+                        key={t.id}
+                        tab={t}
+                        onActivate={onActivateTab}
+                        onClose={onCloseTab}
+                    />
                 ))}
                 <button className="tab-add" aria-label="New tab">
                     +

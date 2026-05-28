@@ -167,12 +167,24 @@ kbd {
   font-size: 14px;
   line-height: 1;
   color: var(--text-mute);
-  padding-left: 4px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  margin-left: 4px;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .tab:hover .tab-close,
 .tab.active .tab-close {
   opacity: 1;
+}
+
+.tab-close:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--text);
 }
 
 .tab-add {
