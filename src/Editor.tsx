@@ -12,9 +12,25 @@ import {
 } from "@tauri-apps/plugin-fs";
 import { sep } from "@tauri-apps/api/path";
 
+const SIDEBAR_MIN = 160;
+const SIDEBAR_MAX = 520;
+const SIDEBAR_WIDTH_KEY = "trace.sidebarWidth";
+
+function readStoredSidebarWidth(): number {
+    const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    const n = raw ? Number(raw) : NaN;
+    if (!Number.isFinite(n)) return 240;
+    return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, n));
+}
+
 export default function Editor({ projectPath }: { projectPath: string }) {
     const [openTabs, setOpenTabs] = useState<Tab[]>([]);
     const [activeId, setActiveId] = useState<string | null>(null);
+    const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
+
+    useEffect(() => {
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    }, [sidebarWidth]);
 
     function openFile(entry: DirEntry, fullPath: string) {
         if (entry.isDirectory) return;
@@ -133,9 +149,16 @@ export default function Editor({ projectPath }: { projectPath: string }) {
                 <div className="body">
                     <Sidebar
                         path={projectPath}
+                        width={sidebarWidth}
                         onOpenFile={openFile}
                         onPathDeleted={onPathDeleted}
                         onPathRenamed={onPathRenamed}
+                    />
+                    <ResizeHandle
+                        width={sidebarWidth}
+                        setWidth={setSidebarWidth}
+                        min={SIDEBAR_MIN}
+                        max={SIDEBAR_MAX}
                     />
                     {openTabs.length === 0 ? (
                         <EmptyWorkspace />
@@ -156,6 +179,51 @@ export default function Editor({ projectPath }: { projectPath: string }) {
                 <StatusBar />
             </div>
         </div>
+    );
+}
+
+function ResizeHandle({
+    width,
+    setWidth,
+    min,
+    max,
+}: {
+    width: number;
+    setWidth: (w: number) => void;
+    min: number;
+    max: number;
+}) {
+    const dragRef = useRef<{ startX: number; startW: number } | null>(null);
+
+    function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+        if (e.button !== 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        dragRef.current = { startX: e.clientX, startW: width };
+    }
+
+    function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+        const d = dragRef.current;
+        if (!d) return;
+        const w = Math.max(min, Math.min(max, d.startW + (e.clientX - d.startX)));
+        setWidth(w);
+    }
+
+    function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+        if (!dragRef.current) return;
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+        dragRef.current = null;
+    }
+
+    return (
+        <div
+            className="resize-handle"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+        />
     );
 }
 

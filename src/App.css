@@ -307,6 +307,24 @@ kbd {
   -webkit-user-select: text;
 }
 
+.resize-handle {
+  flex: 0 0 4px;
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s ease;
+  touch-action: none;
+  position: relative;
+  z-index: 5;
+  margin-left: -2px;
+  margin-right: -2px;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background: rgba(138, 180, 255, 0.35);
+}
+
 .sidebar-head {
   display: flex;
   align-items: center;

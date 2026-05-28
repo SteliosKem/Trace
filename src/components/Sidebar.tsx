@@ -30,6 +30,7 @@ import {
 
 interface SideBarProps {
     path: string;
+    width?: number;
     onOpenFile: (entry: DirEntry, fullPath: string) => void;
     onPathDeleted?: (path: string) => void;
     onPathRenamed?: (oldPath: string, newPath: string) => void;
@@ -89,6 +90,7 @@ function sortEntries(es: DirEntry[]): DirEntry[] {
 
 export default function Sidebar({
     path,
+    width,
     onOpenFile,
     onPathDeleted,
     onPathRenamed,
@@ -306,6 +308,7 @@ export default function Sidebar({
                 className="sidebar"
                 tabIndex={0}
                 onKeyDown={onSidebarKeyDown}
+                style={width !== undefined ? { width } : undefined}
             >
                 <div className="sidebar-head" data-tauri-drag-region>
                     <FolderIconSm />
