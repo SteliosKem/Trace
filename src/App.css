@@ -459,6 +459,22 @@ kbd {
   min-width: 0;
   overflow: hidden;
   background: linear-gradient(180deg, #1b1d20 0%, #16181b 100%);
+  cursor: grab;
+  touch-action: none;
+}
+
+.workspace.dragging {
+  cursor: grabbing;
+}
+
+.workspace-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .workspace-grid {
