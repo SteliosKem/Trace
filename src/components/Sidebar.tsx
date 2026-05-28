@@ -31,6 +31,8 @@ import {
 interface SideBarProps {
     path: string;
     onOpenFile: (entry: DirEntry, fullPath: string) => void;
+    onPathDeleted?: (path: string) => void;
+    onPathRenamed?: (oldPath: string, newPath: string) => void;
 }
 
 type DraftKind = "file" | "folder";
@@ -85,7 +87,12 @@ function sortEntries(es: DirEntry[]): DirEntry[] {
     });
 }
 
-export default function Sidebar({ path, onOpenFile }: SideBarProps) {
+export default function Sidebar({
+    path,
+    onOpenFile,
+    onPathDeleted,
+    onPathRenamed,
+}: SideBarProps) {
     const [entries, setEntries] = useState<DirEntry[]>([]);
     const [reloadKey, setReloadKey] = useState(0);
     const [selected, setSelected] = useState<string | null>(null);
@@ -222,11 +229,12 @@ export default function Sidebar({ path, onOpenFile }: SideBarProps) {
             try {
                 await rename(oldPath, newPath);
                 if (selected === oldPath) setSelected(newPath);
+                onPathRenamed?.(oldPath, newPath);
             } catch (err) {
                 console.error("rename failed:", err);
             }
         },
-        [selected],
+        [selected, onPathRenamed],
     );
 
     const confirmDelete = useCallback(
@@ -241,11 +249,12 @@ export default function Sidebar({ path, onOpenFile }: SideBarProps) {
             try {
                 await remove(target, { recursive: true });
                 if (selected === target) setSelected(null);
+                onPathDeleted?.(target);
             } catch (err) {
                 console.error("remove failed:", err);
             }
         },
-        [selected],
+        [selected, onPathDeleted],
     );
 
     const openMenu = useCallback((m: MenuState) => setMenu(m), []);

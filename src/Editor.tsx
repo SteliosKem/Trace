@@ -1,9 +1,15 @@
 import "./App.css";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import TitleBar, { type Tab } from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
 import StatusBar from "./components/StatusBar";
-import { type DirEntry } from "@tauri-apps/plugin-fs";
+import {
+    exists,
+    watchImmediate,
+    type DirEntry,
+    type UnwatchFn,
+} from "@tauri-apps/plugin-fs";
+import { sep } from "@tauri-apps/api/path";
 
 export default function Editor({ projectPath }: { projectPath: string }) {
     const [openTabs, setOpenTabs] = useState<Tab[]>([]);
@@ -38,6 +44,83 @@ export default function Editor({ projectPath }: { projectPath: string }) {
         });
     }
 
+    function onPathDeleted(deletedPath: string) {
+        const prefix = deletedPath + sep();
+        setOpenTabs((prev) => {
+            const next = prev.filter(
+                (t) => t.id !== deletedPath && !t.id.startsWith(prefix),
+            );
+            if (next.length !== prev.length) {
+                setActiveId((cur) => {
+                    if (cur === null) return null;
+                    if (cur === deletedPath || cur.startsWith(prefix)) {
+                        return next[next.length - 1]?.id ?? null;
+                    }
+                    return cur;
+                });
+            }
+            return next;
+        });
+    }
+
+    function onPathRenamed(oldPath: string, newPath: string) {
+        const oldPrefix = oldPath + sep();
+        setOpenTabs((prev) =>
+            prev.map((t) => {
+                if (t.id === oldPath) {
+                    const label = newPath.split(sep()).pop() ?? newPath;
+                    return { ...t, id: newPath, label };
+                }
+                if (t.id.startsWith(oldPrefix)) {
+                    const newId = newPath + t.id.slice(oldPath.length);
+                    return { ...t, id: newId };
+                }
+                return t;
+            }),
+        );
+        setActiveId((cur) => {
+            if (cur === null) return null;
+            if (cur === oldPath) return newPath;
+            if (cur.startsWith(oldPrefix)) {
+                return newPath + cur.slice(oldPath.length);
+            }
+            return cur;
+        });
+    }
+
+    // external delete watcher — drop tabs for files that vanish on disk
+    const openTabsRef = useRef(openTabs);
+    openTabsRef.current = openTabs;
+    useEffect(() => {
+        let unwatch: UnwatchFn | undefined;
+        let cancelled = false;
+        let pending = false;
+        async function reconcile() {
+            if (pending) return;
+            pending = true;
+            try {
+                const tabs = openTabsRef.current;
+                const checks = await Promise.all(
+                    tabs.map(async (t) => ({ id: t.id, alive: await exists(t.id) })),
+                );
+                const dead = checks.filter((c) => !c.alive).map((c) => c.id);
+                for (const id of dead) onPathDeleted(id);
+            } finally {
+                pending = false;
+            }
+        }
+        watchImmediate(projectPath, reconcile, { recursive: true })
+            .then((fn) => {
+                if (cancelled) fn();
+                else unwatch = fn;
+            })
+            .catch((err) => console.error("editor watch failed:", err));
+        return () => {
+            cancelled = true;
+            unwatch?.();
+        };
+    }, [projectPath]);
+
     const decoratedTabs = openTabs.map((t) => ({ ...t, active: t.id === activeId }));
 
     return (
@@ -49,7 +132,12 @@ export default function Editor({ projectPath }: { projectPath: string }) {
                     onCloseTab={closeTab}
                 />
                 <div className="body">
-                    <Sidebar path={projectPath} onOpenFile={openFile} />
+                    <Sidebar
+                        path={projectPath}
+                        onOpenFile={openFile}
+                        onPathDeleted={onPathDeleted}
+                        onPathRenamed={onPathRenamed}
+                    />
                     <Terminal activeTab={activeTab} />
                 </div>
                 <StatusBar />
