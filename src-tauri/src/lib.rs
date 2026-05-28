@@ -31,12 +31,10 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 use tauri::Manager;
-                use window_vibrancy::{apply_acrylic, apply_mica};
+                use window_vibrancy::apply_acrylic;
 
                 let window = app.get_webview_window("main").unwrap();
-                if apply_mica(&window, Some(true)).is_err() {
-                    apply_acrylic(&window, Some((18, 18, 20, 160))).ok();
-                }
+                apply_acrylic(&window, Some((18, 18, 20, 90))).ok();
             }
             Ok(())
         })
