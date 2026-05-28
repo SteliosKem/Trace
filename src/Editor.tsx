@@ -137,10 +137,61 @@ export default function Editor({ projectPath }: { projectPath: string }) {
                         onPathDeleted={onPathDeleted}
                         onPathRenamed={onPathRenamed}
                     />
-                    <Workspace />
+                    {openTabs.length === 0 ? (
+                        <EmptyWorkspace />
+                    ) : (
+                        openTabs.map((t) => (
+                            <div
+                                key={t.id}
+                                className="workspace-host"
+                                style={{
+                                    display: t.id === activeId ? "flex" : "none",
+                                }}
+                            >
+                                <Workspace />
+                            </div>
+                        ))
+                    )}
                 </div>
                 <StatusBar />
             </div>
         </div>
+    );
+}
+
+function EmptyWorkspace() {
+    return (
+        <section className="workspace-empty">
+            <div className="workspace-empty-inner">
+                <EmptyIcon />
+                <p className="workspace-empty-title">No file open</p>
+                <p className="workspace-empty-hint">
+                    Open a file from the sidebar to start designing.
+                </p>
+            </div>
+        </section>
+    );
+}
+
+function EmptyIcon() {
+    return (
+        <svg viewBox="0 0 48 48" width="44" height="44" fill="none">
+            <rect
+                x="9"
+                y="6"
+                width="22"
+                height="36"
+                rx="3"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                opacity="0.45"
+            />
+            <path
+                d="M27 6 v6 h6"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                opacity="0.45"
+            />
+        </svg>
     );
 }

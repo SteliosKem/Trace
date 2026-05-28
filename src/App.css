@@ -452,6 +452,49 @@ kbd {
   box-shadow: 0 0 3px var(--green);
 }
 
+.workspace-host {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.workspace-empty {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #1b1d20 0%, #16181b 100%);
+  box-shadow: inset 0 0 60px 12px rgba(0, 0, 0, 0.55);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.workspace-empty-inner {
+  text-align: center;
+  color: var(--text-mute);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+  padding: 20px;
+}
+
+.workspace-empty-title {
+  margin: 4px 0 0 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.workspace-empty-hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-mute);
+  line-height: 1.5;
+}
+
 /* -------- workspace (node canvas) -------- */
 .workspace {
   flex: 1;

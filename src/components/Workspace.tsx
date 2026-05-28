@@ -6,7 +6,7 @@ const GRID_SIZE = 5;
 
 export default function Workspace() {
     const [offset, setOffset] = useState({ x: 0, y: 0 });
-    const [scale, setScale] = useState(MIN_SCALE);
+    const [scale, setScale] = useState(MAX_SCALE);
     const [isDragging, setIsDragging] = useState(false);
 
     const dragRef = useRef<{
