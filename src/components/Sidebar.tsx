@@ -13,10 +13,11 @@ import {
     mkdir,
     remove,
     rename,
+    exists,
     type DirEntry,
     type UnwatchFn,
 } from "@tauri-apps/plugin-fs";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask, message } from "@tauri-apps/plugin-dialog";
 import { join, sep } from "@tauri-apps/api/path";
 import {
     SearchIcon,
@@ -182,6 +183,13 @@ export default function Sidebar({ path, onOpenFile }: SideBarProps) {
                     : trimmed;
             try {
                 const full = await join(d.parentPath, finalName);
+                if (await exists(full)) {
+                    await message(
+                        `A ${d.kind} named "${finalName}" already exists in this location.`,
+                        { title: "Cannot create", kind: "error" },
+                    );
+                    return;
+                }
                 if (d.kind === "file") {
                     await writeTextFile(full, "");
                 } else {
@@ -191,6 +199,10 @@ export default function Sidebar({ path, onOpenFile }: SideBarProps) {
                 selectedIsDirRef.current = d.kind === "folder";
             } catch (err) {
                 console.error("create failed:", err);
+                await message(String(err), {
+                    title: "Cannot create",
+                    kind: "error",
+                });
             }
         },
         [draft],
