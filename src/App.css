@@ -540,10 +540,19 @@ kbd {
   -webkit-user-select: none;
   cursor: grab;
   touch-action: none;
+  color: rgba(220, 224, 232, 0.85);
 }
 
 .node.dragging {
   cursor: grabbing;
+}
+
+.node.selected {
+  color: var(--accent);
+}
+
+.node.selected .node-svg path {
+  stroke-width: 1.8;
 }
 
 .node-pin-hit {

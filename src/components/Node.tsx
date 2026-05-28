@@ -12,9 +12,12 @@ interface NodeProps {
     x: number;
     y: number;
     scale: number;
+    selected?: boolean;
     onMove?: (x: number, y: number) => void;
+    onSelect?: () => void;
     onPinDown?: (pinKind: PinKind, pinIndex: number) => void;
     onPinUp?: (pinKind: PinKind, pinIndex: number) => void;
+    onNodeContextMenu?: (clientX: number, clientY: number) => void;
 }
 
 export default function Node({
@@ -22,9 +25,12 @@ export default function Node({
     x,
     y,
     scale,
+    selected,
     onMove,
+    onSelect,
     onPinDown,
     onPinUp,
+    onNodeContextMenu,
 }: NodeProps) {
     const config = GATES[kind];
     const [isDragging, setIsDragging] = useState(false);
@@ -38,6 +44,7 @@ export default function Node({
     function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
         if (e.button !== 0) return;
         e.stopPropagation();
+        onSelect?.();
         e.currentTarget.setPointerCapture(e.pointerId);
         dragRef.current = {
             startClientX: e.clientX,
@@ -46,6 +53,13 @@ export default function Node({
             startY: y,
         };
         setIsDragging(true);
+    }
+
+    function onContextMenu(e: React.MouseEvent<HTMLDivElement>) {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelect?.();
+        onNodeContextMenu?.(e.clientX, e.clientY);
     }
 
     function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -82,12 +96,17 @@ export default function Node({
 
     return (
         <div
-            className={"node" + (isDragging ? " dragging" : "")}
+            className={
+                "node" +
+                (isDragging ? " dragging" : "") +
+                (selected ? " selected" : "")
+            }
             style={{ transform: `translate(${x}px, ${y}px)` }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
+            onContextMenu={onContextMenu}
         >
             <svg
                 className="node-svg"
@@ -98,7 +117,7 @@ export default function Node({
                 <path
                     d={config.path}
                     fill="rgba(255, 255, 255, 0.10)"
-                    stroke="rgba(220, 224, 232, 0.85)"
+                    stroke="currentColor"
                     strokeWidth="1.4"
                     strokeLinejoin="round"
                 />
