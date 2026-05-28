@@ -8,7 +8,7 @@ export default function StatusBar() {
                 <span className="sep">›</span>
                 <span className="crumb">dev</span>
                 <span className="sep">›</span>
-                <span className="crumb active">Terax</span>
+                <span className="crumb active">Trace</span>
             </div>
             <div className="status-right">
                 <button className="status-btn">

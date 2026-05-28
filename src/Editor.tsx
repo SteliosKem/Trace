@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import TitleBar, { type Tab } from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
 import StatusBar from "./components/StatusBar";
+import Workspace from "./components/Workspace";
 import {
     exists,
     watchImmediate,
@@ -14,8 +15,6 @@ import { sep } from "@tauri-apps/api/path";
 export default function Editor({ projectPath }: { projectPath: string }) {
     const [openTabs, setOpenTabs] = useState<Tab[]>([]);
     const [activeId, setActiveId] = useState<string | null>(null);
-
-    const activeTab = openTabs.find((t) => t.id === activeId) ?? null;
 
     function openFile(entry: DirEntry, fullPath: string) {
         if (entry.isDirectory) return;
@@ -138,20 +137,10 @@ export default function Editor({ projectPath }: { projectPath: string }) {
                         onPathDeleted={onPathDeleted}
                         onPathRenamed={onPathRenamed}
                     />
-                    <Terminal activeTab={activeTab} />
+                    <Workspace />
                 </div>
                 <StatusBar />
             </div>
         </div>
-    );
-}
-
-function Terminal({ activeTab }: { activeTab: Tab | null }) {
-    return (
-        <section className="terminal">
-            <div className="term-inner">
-                {activeTab ? activeTab.label : null}
-            </div>
-        </section>
     );
 }
