@@ -26,6 +26,17 @@ pub fn run() {
                 )
                 .ok();
             }
+
+            #[cfg(target_os = "windows")]
+            {
+                use tauri::Manager;
+                use window_vibrancy::{apply_acrylic, apply_mica};
+
+                let window = app.get_webview_window("main").unwrap();
+                if apply_mica(&window, Some(true)).is_err() {
+                    apply_acrylic(&window, Some((18, 18, 20, 160))).ok();
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![greet])
