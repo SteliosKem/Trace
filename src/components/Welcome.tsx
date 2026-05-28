@@ -10,15 +10,18 @@ const recent: RecentItem[] = [
   { name: "playground", path: "~/Desktop/playground" },
 ];
 
-export function Welcome() {
+export function Welcome({ onChooseDirectory }: {
+  onChooseDirectory: (path: string) => void;
+}) {
   async function handleOpenDirectory() {
     try {
       const selected = await open({
         multiple: false,
         directory: true,
+        title: "Choose Directory"
       });
-      if (selected) {
-        console.log("Selected directory:", selected);
+      if (typeof selected === "string") {
+        onChooseDirectory(selected);
       }
     } catch (err) {
       console.error("Error choosing directory:", err);

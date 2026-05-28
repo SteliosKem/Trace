@@ -3,6 +3,7 @@ import TitleBar, { type Tab } from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
 import StatusBar from "./components/StatusBar";
 import { Welcome } from "./components/Welcome";
+import { useState } from "react";
 
 const tabs: Tab[] = [
   { id: "FullAdder", label: "Full Adder", icon: "doc" },
@@ -11,10 +12,11 @@ const tabs: Tab[] = [
   { id: "physics", label: "physics-engine", icon: "folder" },
 ];
 
-function App() {
-  let openedFile = false;
 
-  if (openedFile)
+function App() {
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+
+  if (projectPath)
     return (
       <div className="app">
         <TitleBar tabs={tabs} />
@@ -30,7 +32,7 @@ function App() {
     <div className="app">
       <TitleBar empty={true} />
       <div className="body">
-        <Welcome />
+        <Welcome onChooseDirectory={setProjectPath} />
       </div>
     </div>
   );
