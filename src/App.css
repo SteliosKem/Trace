@@ -404,6 +404,15 @@ kbd {
   cursor: default;
 }
 
+.ctx-section {
+  padding: 6px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
 .ctx-item:hover {
   background: rgba(255, 255, 255, 0.06);
 }

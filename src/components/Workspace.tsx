@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Node, {
     GATES,
     SVG_SCALE,
@@ -27,6 +27,53 @@ export default function Workspace() {
     const [connections, setConnections] = useState<Connection[]>([]);
     const [pending, setPending] = useState<Pending | null>(null);
     const pendingFinishedRef = useRef(false);
+    const [menu, setMenu] = useState<{
+        screenX: number;
+        screenY: number;
+        worldX: number;
+        worldY: number;
+    } | null>(null);
+    const nextIdRef = useRef(4);
+
+    function onContextMenu(e: React.MouseEvent<HTMLElement>) {
+        e.preventDefault();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const wx = (e.clientX - rect.left - offset.x) / scale;
+        const wy = (e.clientY - rect.top - offset.y) / scale;
+        setMenu({
+            screenX: e.clientX,
+            screenY: e.clientY,
+            worldX: wx,
+            worldY: wy,
+        });
+    }
+
+    function addNode(kind: GateKind) {
+        if (!menu) return;
+        const cfg = GATES[kind];
+        const id = String(nextIdRef.current++);
+        // center the node under the cursor
+        const x = menu.worldX - cfg.width / SVG_SCALE / 2;
+        const y = menu.worldY - cfg.height / SVG_SCALE / 2;
+        setNodes((prev) => [...prev, { id, kind, x, y }]);
+        setMenu(null);
+    }
+
+    useEffect(() => {
+        if (!menu) return;
+        function onDown(e: MouseEvent) {
+            if (!(e.target as HTMLElement).closest(".ctx-menu")) setMenu(null);
+        }
+        function onKey(e: KeyboardEvent) {
+            if (e.key === "Escape") setMenu(null);
+        }
+        document.addEventListener("mousedown", onDown);
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("mousedown", onDown);
+            document.removeEventListener("keydown", onKey);
+        };
+    }, [menu]);
 
     function moveNode(id: string, x: number, y: number) {
         setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, x, y } : n)));
@@ -166,6 +213,7 @@ export default function Workspace() {
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
             onWheel={onWheel}
+            onContextMenu={onContextMenu}
         >
             <div
                 className="workspace-grid"
@@ -248,6 +296,25 @@ export default function Workspace() {
                 ))}
             </div>
             <div className="workspace-vignette" />
+            {menu && (
+                <div
+                    className="ctx-menu"
+                    style={{ top: menu.screenY, left: menu.screenX }}
+                    onContextMenu={(e) => e.preventDefault()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                >
+                    <div className="ctx-section">Add gate</div>
+                    <button className="ctx-item" onClick={() => addNode("not")}>
+                        NOT
+                    </button>
+                    <button className="ctx-item" onClick={() => addNode("and")}>
+                        AND
+                    </button>
+                    <button className="ctx-item" onClick={() => addNode("or")}>
+                        OR
+                    </button>
+                </div>
+            )}
         </section>
     );
 }
