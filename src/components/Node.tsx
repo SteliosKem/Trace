@@ -1,20 +1,65 @@
+import { useRef, useState } from "react";
+
 export type GateKind = "not" | "and" | "or";
 
 interface NodeProps {
     kind: GateKind;
     x: number;
     y: number;
+    scale: number;
+    onMove?: (x: number, y: number) => void;
 }
 
-export default function Node({ kind, x, y }: NodeProps) {
+export default function Node({ kind, x, y, scale, onMove }: NodeProps) {
     const config = GATES[kind];
+    const [isDragging, setIsDragging] = useState(false);
+    const dragRef = useRef<{
+        startClientX: number;
+        startClientY: number;
+        startX: number;
+        startY: number;
+    } | null>(null);
+
+    function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        dragRef.current = {
+            startClientX: e.clientX,
+            startClientY: e.clientY,
+            startX: x,
+            startY: y,
+        };
+        setIsDragging(true);
+    }
+
+    function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+        const d = dragRef.current;
+        if (!d) return;
+        e.stopPropagation();
+        const dx = (e.clientX - d.startClientX) / scale;
+        const dy = (e.clientY - d.startClientY) / scale;
+        onMove?.(d.startX + dx, d.startY + dy);
+    }
+
+    function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+        if (!dragRef.current) return;
+        e.stopPropagation();
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+        dragRef.current = null;
+        setIsDragging(false);
+    }
 
     return (
         <div
-            className="node"
-            style={{
-                transform: `translate(${x}px, ${y}px)`,
-            }}
+            className={"node" + (isDragging ? " dragging" : "")}
+            style={{ transform: `translate(${x}px, ${y}px)` }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
         >
             <svg
                 className="node-svg"
@@ -24,7 +69,7 @@ export default function Node({ kind, x, y }: NodeProps) {
             >
                 <path
                     d={config.path}
-                    fill="rgba(255, 255, 255, 0.02)"
+                    fill="rgba(255, 255, 255, 0.10)"
                     stroke="rgba(220, 224, 232, 0.85)"
                     strokeWidth="1.4"
                     strokeLinejoin="round"

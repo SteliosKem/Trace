@@ -529,7 +529,12 @@ kbd {
   transform-origin: 0 0;
   user-select: none;
   -webkit-user-select: none;
-  pointer-events: none;
+  cursor: grab;
+  touch-action: none;
+}
+
+.node.dragging {
+  cursor: grabbing;
 }
 
 .node-svg {

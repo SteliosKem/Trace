@@ -1,14 +1,27 @@
 import { useRef, useState } from "react";
-import Node from "./Node";
+import Node, { type GateKind } from "./Node";
 
 const MIN_SCALE = 1;
-const MAX_SCALE = 5;
+const MAX_SCALE = 6;
 const GRID_SIZE = 5;
+
+type NodeInstance = { id: string; kind: GateKind; x: number; y: number };
 
 export default function Workspace() {
     const [offset, setOffset] = useState({ x: 0, y: 0 });
     const [scale, setScale] = useState(MAX_SCALE);
     const [isDragging, setIsDragging] = useState(false);
+    const [nodes, setNodes] = useState<NodeInstance[]>([
+        { id: "1", kind: "not", x: 30, y: 30 },
+        { id: "2", kind: "and", x: 60, y: 30 },
+        { id: "3", kind: "or", x: 90, y: 30 },
+    ]);
+
+    function moveNode(id: string, x: number, y: number) {
+        setNodes((prev) =>
+            prev.map((n) => (n.id === id ? { ...n, x, y } : n)),
+        );
+    }
 
     const dragRef = useRef<{
         startClientX: number;
@@ -91,9 +104,16 @@ export default function Workspace() {
                     transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
                 }}
             >
-                <Node kind="not" x={30} y={30} />
-                <Node kind="and" x={60} y={30} />
-                <Node kind="or" x={90} y={30} />
+                {nodes.map((n) => (
+                    <Node
+                        key={n.id}
+                        kind={n.kind}
+                        x={n.x}
+                        y={n.y}
+                        scale={scale}
+                        onMove={(x, y) => moveNode(n.id, x, y)}
+                    />
+                ))}
             </div>
             <div className="workspace-vignette" />
         </section>
