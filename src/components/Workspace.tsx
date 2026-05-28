@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import Node from "./Node";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
@@ -90,7 +91,9 @@ export default function Workspace() {
                     transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
                 }}
             >
-                {/* nodes & cables will live here */}
+                <Node kind="not" x={30} y={30} />
+                <Node kind="and" x={60} y={30} />
+                <Node kind="or" x={90} y={30} />
             </div>
             <div className="workspace-vignette" />
         </section>

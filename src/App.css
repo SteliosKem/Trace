@@ -517,7 +517,33 @@ kbd {
   width: 0;
   height: 0;
   transform-origin: 0 0;
-  will-change: transform;
+}
+
+.node {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform-origin: 0 0;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+
+.node-svg {
+  display: block;
+  overflow: visible;
+}
+
+.node-label {
+  margin-top: 0.4px;
+  font-size: 1.8px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--text-mute);
+  text-transform: uppercase;
 }
 
 .workspace-grid {
