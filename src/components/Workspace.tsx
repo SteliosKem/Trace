@@ -1,8 +1,14 @@
 import { useRef, useState } from "react";
 
+const MIN_SCALE = 1;
+const MAX_SCALE = 5;
+const GRID_SIZE = 5;
+
 export default function Workspace() {
     const [offset, setOffset] = useState({ x: 0, y: 0 });
+    const [scale, setScale] = useState(MIN_SCALE);
     const [isDragging, setIsDragging] = useState(false);
+
     const dragRef = useRef<{
         startClientX: number;
         startClientY: number;
@@ -11,7 +17,6 @@ export default function Workspace() {
     } | null>(null);
 
     function onPointerDown(e: React.PointerEvent<HTMLElement>) {
-        // only primary button (left mouse / single touch)
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
         dragRef.current = {
@@ -41,6 +46,28 @@ export default function Workspace() {
         setIsDragging(false);
     }
 
+    function onWheel(e: React.WheelEvent<HTMLElement>) {
+        e.preventDefault();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        const zoomFactor = Math.exp(-e.deltaY * 0.0015);
+        const newScale = Math.max(
+            MIN_SCALE,
+            Math.min(MAX_SCALE, scale * zoomFactor),
+        );
+        if (newScale === scale) return;
+
+        // keep the world-point under the cursor stationary
+        const k = newScale / scale;
+        setOffset({
+            x: mx - (mx - offset.x) * k,
+            y: my - (my - offset.y) * k,
+        });
+        setScale(newScale);
+    }
+
     return (
         <section
             className={"workspace" + (isDragging ? " dragging" : "")}
@@ -48,14 +75,20 @@ export default function Workspace() {
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
+            onWheel={onWheel}
         >
             <div
                 className="workspace-grid"
-                style={{ backgroundPosition: `${offset.x}px ${offset.y}px` }}
+                style={{
+                    backgroundPosition: `${offset.x}px ${offset.y}px`,
+                    backgroundSize: `${GRID_SIZE * scale}px ${GRID_SIZE * scale}px`,
+                }}
             />
             <div
                 className="workspace-content"
-                style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
+                style={{
+                    transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+                }}
             >
                 {/* nodes & cables will live here */}
             </div>
