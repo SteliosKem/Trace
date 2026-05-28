@@ -87,6 +87,7 @@ export default function Sidebar({ path }: SideBarProps) {
                         entry={e}
                         parentPath={path}
                         depth={0}
+                        reloadKey={reloadKey}
                     />
                 ))}
             </div>
@@ -98,32 +99,39 @@ function TreeNode({
     entry,
     parentPath,
     depth,
+    reloadKey,
 }: {
     entry: DirEntry;
     parentPath: string;
     depth: number;
+    reloadKey: number;
 }) {
     const [expanded, setExpanded] = useState(false);
     const [children, setChildren] = useState<DirEntry[] | null>(null);
     const [loading, setLoading] = useState(false);
     const indent = 14 + depth * 12;
 
-    async function toggle() {
+    const loadChildren = useCallback(async () => {
         if (!entry.isDirectory) return;
-        const next = !expanded;
-        setExpanded(next);
-        if (next && children === null) {
-            setLoading(true);
-            try {
-                const full = await join(parentPath, entry.name);
-                setChildren(sortEntries(await readDir(full)));
-            } catch (err) {
-                console.error("readDir failed:", err);
-                setChildren([]);
-            } finally {
-                setLoading(false);
-            }
+        setLoading(true);
+        try {
+            const full = await join(parentPath, entry.name);
+            setChildren(sortEntries(await readDir(full)));
+        } catch (err) {
+            console.error("readDir failed:", err);
+            setChildren([]);
+        } finally {
+            setLoading(false);
         }
+    }, [entry.isDirectory, entry.name, parentPath]);
+
+    useEffect(() => {
+        if (expanded) loadChildren();
+    }, [reloadKey, expanded, loadChildren]);
+
+    function toggle() {
+        if (!entry.isDirectory) return;
+        setExpanded((e) => !e);
     }
 
     if (entry.isDirectory) {
@@ -155,6 +163,7 @@ function TreeNode({
                             entry={c}
                             parentPath={`${parentPath}${sep()}${entry.name}`}
                             depth={depth + 1}
+                            reloadKey={reloadKey}
                         />
                     ))}
             </>
