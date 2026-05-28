@@ -12,7 +12,7 @@ const GRID_SIZE = 5;
 
 type NodeInstance = { id: string; kind: GateKind; x: number; y: number };
 type PinRef = { nodeId: string; pinKind: PinKind; pinIndex: number };
-type Connection = { from: PinRef; to: PinRef }; // from = output, to = input
+type Connection = { id: string; from: PinRef; to: PinRef }; // from = output, to = input
 type Pending = { from: PinRef; cursor: { x: number; y: number } };
 
 export default function Workspace() {
@@ -39,6 +39,11 @@ export default function Workspace() {
         targetNodeId: string | null;
     } | null>(null);
     const nextIdRef = useRef(4);
+    const nextConnIdRef = useRef(0);
+
+    function deleteConnection(id: string) {
+        setConnections((prev) => prev.filter((c) => c.id !== id));
+    }
 
     function deleteNode(id: string) {
         setNodes((prev) => prev.filter((n) => n.id !== id));
@@ -213,7 +218,9 @@ export default function Workspace() {
                         c.to.nodeId === to.nodeId &&
                         c.to.pinIndex === to.pinIndex,
                 );
-                return exists ? cs : [...cs, { from, to }];
+                return exists
+                    ? cs
+                    : [...cs, { id: `c${nextConnIdRef.current++}`, from, to }];
             });
             pendingFinishedRef.current = true;
             return null;
@@ -328,25 +335,41 @@ export default function Workspace() {
                         top: 0,
                         left: 0,
                         overflow: "visible",
-                        pointerEvents: "none",
                     }}
                 >
-                    {connections.map((c, i) => {
+                    {connections.map((c) => {
                         const fromNode = nodes.find((n) => n.id === c.from.nodeId);
                         const toNode = nodes.find((n) => n.id === c.to.nodeId);
                         if (!fromNode || !toNode) return null;
                         const p1 = pinWorldPos(fromNode, "output", c.from.pinIndex);
                         const p2 = pinWorldPos(toNode, "input", c.to.pinIndex);
+                        const d = orthPath(p1.x, p1.y, p2.x, p2.y);
                         return (
-                            <path
-                                key={i}
-                                d={orthPath(p1.x, p1.y, p2.x, p2.y)}
-                                fill="none"
-                                stroke="rgba(220, 224, 232, 0.75)"
-                                strokeWidth="0.35"
-                                strokeLinejoin="round"
-                                strokeLinecap="round"
-                            />
+                            <g key={c.id} className="cable">
+                                <path
+                                    d={d}
+                                    fill="none"
+                                    stroke="transparent"
+                                    strokeWidth="1.6"
+                                    pointerEvents="stroke"
+                                    style={{ cursor: "pointer" }}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteConnection(c.id);
+                                    }}
+                                />
+                                <path
+                                    className="cable-line"
+                                    d={d}
+                                    fill="none"
+                                    stroke="rgba(220, 224, 232, 0.75)"
+                                    strokeWidth="0.35"
+                                    strokeLinejoin="round"
+                                    strokeLinecap="round"
+                                    pointerEvents="none"
+                                />
+                            </g>
                         );
                     })}
                     {pending &&

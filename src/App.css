@@ -559,6 +559,10 @@ kbd {
   cursor: crosshair;
 }
 
+.cable:hover .cable-line {
+  stroke: #8a8f98;
+}
+
 .node-svg {
   display: block;
   overflow: visible;
