@@ -99,9 +99,6 @@ function TitleBar({
                         onClose={onCloseTab}
                     />
                 ))}
-                <button className="tab-add" aria-label="New tab">
-                    +
-                </button>
             </div>
             <div className="titlebar-right">
                 <button className="play-btn" aria-label="Run">
