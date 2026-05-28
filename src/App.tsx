@@ -21,7 +21,7 @@ function App() {
       <div className="app">
         <TitleBar tabs={tabs} />
         <div className="body">
-          <Sidebar />
+          <Sidebar path={projectPath} />
           <Terminal />
         </div>
         <StatusBar />
