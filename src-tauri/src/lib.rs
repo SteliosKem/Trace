@@ -1,4 +1,3 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -8,16 +7,14 @@ fn greet(name: &str) -> String {
 const WINDOW_RADIUS_PX: i32 = 12;
 
 #[cfg(target_os = "windows")]
-fn apply_round_region(window: &tauri::WebviewWindow) {
-    use windows_sys::Win32::Foundation::{HWND, RECT};
-    use windows_sys::Win32::Graphics::Gdi::CreateRoundRectRgn;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, SetWindowRgn};
+fn round_hwnd(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::CreateRoundRectRgn;
+    use windows::Win32::UI::WindowsAndMessaging::{GetClientRect, SetWindowRgn};
 
-    let Ok(hwnd) = window.hwnd() else { return };
-    let hwnd = hwnd.0 as HWND;
+    let mut rect = RECT::default();
     unsafe {
-        let mut rect: RECT = std::mem::zeroed();
-        if GetClientRect(hwnd, &mut rect) == 0 {
+        if GetClientRect(hwnd, &mut rect).is_err() {
             return;
         }
         let w = rect.right - rect.left + 1;
@@ -30,8 +27,8 @@ fn apply_round_region(window: &tauri::WebviewWindow) {
             WINDOW_RADIUS_PX * 2 + 1,
             WINDOW_RADIUS_PX * 2 + 1,
         );
-        // Windows takes ownership of the region handle.
-        SetWindowRgn(hwnd, region, 1);
+        // Windows takes ownership of the region handle after this call.
+        SetWindowRgn(hwnd, Some(region), true);
     }
 }
 
@@ -41,14 +38,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
-        .on_window_event(|window, event| {
+        .on_window_event(|_window, _event| {
             #[cfg(target_os = "windows")]
-            if let tauri::WindowEvent::Resized(_) = event {
-                apply_round_region(window);
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                let _ = (window, event);
+            if let tauri::WindowEvent::Resized(_) = _event {
+                if let Ok(hwnd) = _window.hwnd() {
+                    round_hwnd(hwnd);
+                }
             }
         })
         .setup(|app| {
@@ -73,8 +68,7 @@ pub fn run() {
             {
                 use tauri::Manager;
                 use window_vibrancy::apply_acrylic;
-                use windows_sys::Win32::Foundation::HWND;
-                use windows_sys::Win32::Graphics::Dwm::{
+                use windows::Win32::Graphics::Dwm::{
                     DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE,
                     DWMWCP_DONOTROUND,
                 };
@@ -83,19 +77,17 @@ pub fn run() {
                 apply_acrylic(&window, Some((18, 18, 20, 90))).ok();
 
                 if let Ok(hwnd) = window.hwnd() {
-                    let hwnd_raw = hwnd.0 as HWND;
-                    let prefer_no_round: u32 = DWMWCP_DONOTROUND;
+                    let prefer_no_round = DWMWCP_DONOTROUND.0 as u32;
                     unsafe {
-                        DwmSetWindowAttribute(
-                            hwnd_raw,
-                            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+                        let _ = DwmSetWindowAttribute(
+                            hwnd,
+                            DWMWA_WINDOW_CORNER_PREFERENCE,
                             &prefer_no_round as *const _ as *const _,
                             std::mem::size_of::<u32>() as u32,
                         );
                     }
+                    round_hwnd(hwnd);
                 }
-
-                apply_round_region(&window);
             }
             Ok(())
         })
