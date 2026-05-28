@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 
 export type GateKind = "not" | "and" | "or";
+export type PinKind = "input" | "output";
+
+// SVG viewBox units → world units divisor.
+// (SVG width is config.width / SVG_SCALE in world coords.)
+export const SVG_SCALE = 4;
 
 interface NodeProps {
     kind: GateKind;
@@ -8,9 +13,19 @@ interface NodeProps {
     y: number;
     scale: number;
     onMove?: (x: number, y: number) => void;
+    onPinDown?: (pinKind: PinKind, pinIndex: number) => void;
+    onPinUp?: (pinKind: PinKind, pinIndex: number) => void;
 }
 
-export default function Node({ kind, x, y, scale, onMove }: NodeProps) {
+export default function Node({
+    kind,
+    x,
+    y,
+    scale,
+    onMove,
+    onPinDown,
+    onPinUp,
+}: NodeProps) {
     const config = GATES[kind];
     const [isDragging, setIsDragging] = useState(false);
     const dragRef = useRef<{
@@ -52,6 +67,19 @@ export default function Node({ kind, x, y, scale, onMove }: NodeProps) {
         setIsDragging(false);
     }
 
+    function pinHandlers(pinKind: PinKind, pinIndex: number) {
+        return {
+            onPointerDown: (e: React.PointerEvent<SVGCircleElement>) => {
+                e.stopPropagation();
+                onPinDown?.(pinKind, pinIndex);
+            },
+            onPointerUp: (e: React.PointerEvent<SVGCircleElement>) => {
+                e.stopPropagation();
+                onPinUp?.(pinKind, pinIndex);
+            },
+        };
+    }
+
     return (
         <div
             className={"node" + (isDragging ? " dragging" : "")}
@@ -63,8 +91,8 @@ export default function Node({ kind, x, y, scale, onMove }: NodeProps) {
         >
             <svg
                 className="node-svg"
-                width={config.width / 4}
-                height={config.height / 4}
+                width={config.width / SVG_SCALE}
+                height={config.height / SVG_SCALE}
                 viewBox={`0 0 ${config.width} ${config.height}`}
             >
                 <path
@@ -75,20 +103,39 @@ export default function Node({ kind, x, y, scale, onMove }: NodeProps) {
                     strokeLinejoin="round"
                 />
                 {config.inputs.map((pin, i) => (
+                    <g key={`in-${i}`} {...pinHandlers("input", i)}>
+                        <circle
+                            cx={pin.x}
+                            cy={pin.y}
+                            r="6"
+                            fill="transparent"
+                            className="node-pin-hit"
+                        />
+                        <circle
+                            cx={pin.x}
+                            cy={pin.y}
+                            r="2.5"
+                            fill="#d0d4dc"
+                            pointerEvents="none"
+                        />
+                    </g>
+                ))}
+                <g {...pinHandlers("output", 0)}>
                     <circle
-                        key={`in-${i}`}
-                        cx={pin.x}
-                        cy={pin.y}
+                        cx={config.output.x}
+                        cy={config.output.y}
+                        r="6"
+                        fill="transparent"
+                        className="node-pin-hit"
+                    />
+                    <circle
+                        cx={config.output.x}
+                        cy={config.output.y}
                         r="2.5"
                         fill="#d0d4dc"
+                        pointerEvents="none"
                     />
-                ))}
-                <circle
-                    cx={config.output.x}
-                    cy={config.output.y}
-                    r="2.5"
-                    fill="#d0d4dc"
-                />
+                </g>
             </svg>
         </div>
     );
@@ -108,11 +155,10 @@ interface GateConfig {
     label: string;
 }
 
-const GATES: Record<GateKind, GateConfig> = {
+export const GATES: Record<GateKind, GateConfig> = {
     not: {
         width: 60,
         height: 40,
-        // triangle with inverter bubble
         path: "M 10 8 L 10 32 L 38 20 Z M 44 20 a 3 3 0 1 1 -6 0 a 3 3 0 1 1 6 0",
         inputs: [{ x: 6, y: 20 }],
         output: { x: 50, y: 20 },
@@ -121,7 +167,6 @@ const GATES: Record<GateKind, GateConfig> = {
     and: {
         width: 60,
         height: 40,
-        // D-shape: flat back, rounded front
         path: "M 10 8 L 28 8 A 12 12 0 0 1 28 32 L 10 32 Z",
         inputs: [
             { x: 6, y: 14 },
@@ -133,9 +178,7 @@ const GATES: Record<GateKind, GateConfig> = {
     or: {
         width: 60,
         height: 40,
-        // concave back, pointed front
-        path:
-            "M 8 8 Q 18 20 8 32 Q 22 32 42 20 Q 22 8 8 8 Z",
+        path: "M 8 8 Q 18 20 8 32 Q 22 32 42 20 Q 22 8 8 8 Z",
         inputs: [
             { x: 9, y: 14 },
             { x: 9, y: 26 },

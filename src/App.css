@@ -537,6 +537,10 @@ kbd {
   cursor: grabbing;
 }
 
+.node-pin-hit {
+  cursor: crosshair;
+}
+
 .node-svg {
   display: block;
   overflow: visible;
