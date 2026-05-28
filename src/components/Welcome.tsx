@@ -1,3 +1,5 @@
+import { open } from '@tauri-apps/plugin-dialog';
+
 type RecentItem = { name: string; path: string };
 
 const recent: RecentItem[] = [
@@ -9,6 +11,20 @@ const recent: RecentItem[] = [
 ];
 
 export function Welcome() {
+  async function handleOpenDirectory() {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: true,
+      });
+      if (selected) {
+        console.log("Selected directory:", selected);
+      }
+    } catch (err) {
+      console.error("Error choosing directory:", err);
+    }
+  }
+
   return (
     <section className="welcome">
       <div className="welcome-inner">
@@ -25,8 +41,8 @@ export function Welcome() {
         <div className="welcome-grid">
           <div className="welcome-col">
             <h2 className="welcome-section">Start</h2>
-            <ActionRow icon={<NewIcon />} label="New project" hint="⌘N" />
-            <ActionRow icon={<FolderOpenIcon />} label="Open project…" hint="⌘O" />
+            <ActionRow icon={<NewIcon />} label="New project" hint="⌘N" onClick={handleOpenDirectory} />
+            <ActionRow icon={<FolderOpenIcon />} label="Open project…" hint="⌘O" onClick={handleOpenDirectory} />
             <ActionRow icon={<FileIcon />} label="Open file…" hint="⇧⌘O" />
             <ActionRow icon={<GitIcon />} label="Clone from Git…" />
 
@@ -58,13 +74,15 @@ function ActionRow({
   icon,
   label,
   hint,
+  onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   hint?: string;
+  onClick?: () => void;
 }) {
   return (
-    <button className="welcome-action">
+    <button className="welcome-action" onClick={onClick}>
       <span className="welcome-action-icon">{icon}</span>
       <span className="welcome-action-label">{label}</span>
       {hint && <span className="welcome-action-hint">{hint}</span>}

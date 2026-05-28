@@ -12,7 +12,7 @@ const tabs: Tab[] = [
 ];
 
 function App() {
-  let openedFile = true;
+  let openedFile = false;
 
   if (openedFile)
     return (
