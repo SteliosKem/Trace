@@ -29,6 +29,7 @@ import {
 
 interface SideBarProps {
     path: string;
+    onOpenFile: (entry: DirEntry, fullPath: string) => void;
 }
 
 type DraftKind = "file" | "folder";
@@ -83,7 +84,7 @@ function sortEntries(es: DirEntry[]): DirEntry[] {
     });
 }
 
-export default function Sidebar({ path }: SideBarProps) {
+export default function Sidebar({ path, onOpenFile }: SideBarProps) {
     const [entries, setEntries] = useState<DirEntry[]>([]);
     const [reloadKey, setReloadKey] = useState(0);
     const [selected, setSelected] = useState<string | null>(null);
@@ -326,6 +327,7 @@ export default function Sidebar({ path }: SideBarProps) {
                             entry={e}
                             parentPath={path}
                             depth={0}
+                            onOpenFile={onOpenFile}
                         />
                     ))}
                 </div>
@@ -353,10 +355,12 @@ function TreeNode({
     entry,
     parentPath,
     depth,
+    onOpenFile,
 }: {
     entry: DirEntry;
     parentPath: string;
     depth: number;
+    onOpenFile: (entry: DirEntry, fullPath: string) => void;
 }) {
     const {
         selected,
@@ -468,6 +472,7 @@ function TreeNode({
                                 entry={c}
                                 parentPath={fullPath}
                                 depth={depth + 1}
+                                onOpenFile={onOpenFile}
                             />
                         ))}
                     </>
@@ -481,6 +486,7 @@ function TreeNode({
             className={"tree-row file" + (isSelected ? " selected" : "")}
             style={{ paddingLeft: indent + 12 }}
             onClick={onClick}
+            onDoubleClick={() => onOpenFile(entry, fullPath)}
             onContextMenu={onContextMenu}
         >
             <FileGlyph name={entry.name} />
