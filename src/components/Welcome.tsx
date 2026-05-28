@@ -49,13 +49,6 @@ export function Welcome() {
             <button className="welcome-more">More…</button>
           </div>
         </div>
-
-        <footer className="welcome-footer">
-          <label className="welcome-check">
-            <input type="checkbox" defaultChecked />
-            <span>Show welcome page on startup</span>
-          </label>
-        </footer>
       </div>
     </section>
   );
