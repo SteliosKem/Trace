@@ -5,6 +5,7 @@ import Node, {
     type GateKind,
     type PinKind,
 } from "./Node";
+import Toolbar, { type Tool } from "./Toolbar";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
@@ -14,6 +15,7 @@ type NodeInstance = { id: string; kind: GateKind; x: number; y: number };
 type PinRef = { nodeId: string; pinKind: PinKind; pinIndex: number };
 type Connection = { id: string; from: PinRef; to: PinRef }; // from = output, to = input
 type Pending = { from: PinRef; cursor: { x: number; y: number } };
+const DND_MIME = "application/x-trace-gate";
 
 export default function Workspace() {
     const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -28,6 +30,7 @@ export default function Workspace() {
     const [pending, setPending] = useState<Pending | null>(null);
     const pendingFinishedRef = useRef(false);
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [tool, setTool] = useState<Tool>("pan");
     const [clipboard, setClipboard] = useState<
         { kind: GateKind; x: number; y: number } | null
     >(null);
@@ -143,15 +146,41 @@ export default function Workspace() {
         });
     }
 
-    function addNode(kind: GateKind) {
-        if (!menu) return;
+    function addNodeAt(kind: GateKind, worldX: number, worldY: number) {
         const cfg = GATES[kind];
         const id = String(nextIdRef.current++);
-        const x = menu.worldX - cfg.width / SVG_SCALE / 2;
-        const y = menu.worldY - cfg.height / SVG_SCALE / 2;
+        const x = worldX - cfg.width / SVG_SCALE / 2;
+        const y = worldY - cfg.height / SVG_SCALE / 2;
         setNodes((prev) => [...prev, { id, kind, x, y }]);
         setSelectedId(id);
+    }
+
+    function addNode(kind: GateKind) {
+        if (!menu) return;
+        addNodeAt(kind, menu.worldX, menu.worldY);
         setMenu(null);
+    }
+
+    function clientToWorld(rect: DOMRect, clientX: number, clientY: number) {
+        return {
+            x: (clientX - rect.left - offset.x) / scale,
+            y: (clientY - rect.top - offset.y) / scale,
+        };
+    }
+
+    function onDragOver(e: React.DragEvent<HTMLDivElement>) {
+        if (!Array.from(e.dataTransfer.types).includes(DND_MIME)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+    }
+
+    function onDrop(e: React.DragEvent<HTMLDivElement>) {
+        const kind = e.dataTransfer.getData(DND_MIME) as GateKind;
+        if (!kind) return;
+        e.preventDefault();
+        const rect = e.currentTarget.getBoundingClientRect();
+        const w = clientToWorld(rect, e.clientX, e.clientY);
+        addNodeAt(kind, w.x, w.y);
     }
 
     useEffect(() => {
@@ -304,15 +333,19 @@ export default function Workspace() {
     }
 
     return (
-        <section
-            className={"workspace" + (isDragging ? " dragging" : "")}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-            onWheel={onWheel}
-            onContextMenu={onContextMenu}
-        >
+        <section className={"workspace" + (isDragging ? " dragging" : "")}>
+            <Toolbar tool={tool} onToolChange={setTool} />
+            <div
+                className="workspace-canvas"
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
+                onWheel={onWheel}
+                onContextMenu={onContextMenu}
+                onDragOver={onDragOver}
+                onDrop={onDrop}
+            >
             <div
                 className="workspace-grid"
                 style={{
@@ -413,6 +446,7 @@ export default function Workspace() {
                 ))}
             </div>
             <div className="workspace-vignette" />
+            </div>
             {menu && menu.targetNodeId && (
                 <div
                     className="ctx-menu"

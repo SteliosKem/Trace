@@ -529,13 +529,76 @@ kbd {
   min-width: 0;
   overflow: hidden;
   background: linear-gradient(180deg, #1b1d20 0%, #16181b 100%);
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-canvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
   cursor: grab;
   touch-action: none;
 }
 
-.workspace.dragging {
+.workspace.dragging .workspace-canvas {
   cursor: grabbing;
 }
+
+.toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  height: 38px;
+  background: rgba(20, 21, 23, 0.55);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: 5;
+}
+
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.tool-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.tool-btn.active {
+  background: rgba(138, 180, 255, 0.14);
+  color: var(--text);
+  border-color: rgba(138, 180, 255, 0.22);
+}
+
+.tool-btn.gate-chip {
+  cursor: grab;
+}
+
+.tool-btn.gate-chip:active {
+  cursor: grabbing;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-strong);
+  margin: 0 4px;
+}
+
 
 .workspace-content {
   position: absolute;
