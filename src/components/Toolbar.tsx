@@ -50,6 +50,23 @@ export default function Toolbar({
                     <GateMini kind={kind} />
                 </button>
             ))}
+
+            <div className="toolbar-divider" />
+
+            {(["input", "output"] as GateKind[]).map((kind) => (
+                <button
+                    key={kind}
+                    className="tool-btn gate-chip"
+                    title={`Drag to add ${kind.toUpperCase()} node`}
+                    onPointerDown={(e) => {
+                        if (e.button !== 0) return;
+                        e.preventDefault();
+                        onStartGateDrag(kind, e.clientX, e.clientY);
+                    }}
+                >
+                    <GateMini kind={kind} />
+                </button>
+            ))}
         </div>
     );
 }

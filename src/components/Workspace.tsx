@@ -638,9 +638,14 @@ export default function Workspace({ filePath, active }: WorkspaceProps) {
         setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, x, y } : n)));
     }
 
-    function pinWorldPos(node: NodeInstance, kind: PinKind, idx: number) {
+    function pinWorldPos(
+        node: NodeInstance,
+        kind: PinKind,
+        idx: number,
+    ): { x: number; y: number } | null {
         const cfg = GATES[node.kind];
         const pin = kind === "input" ? cfg.inputs[idx] : cfg.output;
+        if (!pin) return null;
         return {
             x: node.x + pin.x / SVG_SCALE,
             y: node.y + pin.y / SVG_SCALE,
@@ -831,6 +836,7 @@ export default function Workspace({ filePath, active }: WorkspaceProps) {
         const node = nodes.find((n) => n.id === nodeId);
         if (!node) return;
         const pos = pinWorldPos(node, kind, idx);
+        if (!pos) return;
         setPending({
             from: { type: "pin", nodeId, pinKind: kind, pinIndex: idx },
             cursor: pos,
@@ -1303,6 +1309,7 @@ export default function Workspace({ filePath, active }: WorkspaceProps) {
                                 pending.from.pinKind,
                                 pending.from.pinIndex,
                             );
+                            if (!p1) return null;
                             return (
                                 <path
                                     d={orthPath(p1.x, p1.y, pending.cursor.x, pending.cursor.y)}

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 
-export type GateKind = "not" | "and" | "or";
+export type GateKind = "not" | "and" | "or" | "input" | "output";
 export type PinKind = "input" | "output";
 
 // SVG viewBox units → world units divisor.
@@ -139,22 +139,38 @@ export default function Node({
                         />
                     </g>
                 ))}
-                <g {...pinHandlers("output", 0)}>
-                    <circle
-                        cx={config.output.x}
-                        cy={config.output.y}
-                        r="6"
-                        fill="transparent"
-                        className="node-pin-hit"
-                    />
-                    <circle
-                        cx={config.output.x}
-                        cy={config.output.y}
-                        r="2.5"
-                        fill="#d0d4dc"
+                {config.output && (
+                    <g {...pinHandlers("output", 0)}>
+                        <circle
+                            cx={config.output.x}
+                            cy={config.output.y}
+                            r="6"
+                            fill="transparent"
+                            className="node-pin-hit"
+                        />
+                        <circle
+                            cx={config.output.x}
+                            cy={config.output.y}
+                            r="2.5"
+                            fill="#d0d4dc"
+                            pointerEvents="none"
+                        />
+                    </g>
+                )}
+                {(kind === "input" || kind === "output") && (
+                    <text
+                        x={config.width / 2}
+                        y={config.height / 2}
+                        dominantBaseline="middle"
+                        textAnchor="middle"
+                        fontSize="10"
+                        fontWeight="600"
+                        fill="currentColor"
                         pointerEvents="none"
-                    />
-                </g>
+                    >
+                        {config.label}
+                    </text>
+                )}
             </svg>
         </div>
     );
@@ -170,7 +186,7 @@ interface GateConfig {
     height: number;
     path: string;
     inputs: Pin[];
-    output: Pin;
+    output?: Pin;
     label: string;
 }
 
@@ -204,5 +220,20 @@ export const GATES: Record<GateKind, GateConfig> = {
         ],
         output: { x: 44, y: 20 },
         label: "OR",
+    },
+    input: {
+        width: 60,
+        height: 24,
+        path: "M 4 4 L 46 4 L 54 12 L 46 20 L 4 20 Z",
+        inputs: [],
+        output: { x: 54, y: 12 },
+        label: "IN",
+    },
+    output: {
+        width: 60,
+        height: 24,
+        path: "M 6 12 L 14 4 L 56 4 L 56 20 L 14 20 Z",
+        inputs: [{ x: 6, y: 12 }],
+        label: "OUT",
     },
 };
