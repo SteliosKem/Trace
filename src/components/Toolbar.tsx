@@ -2,19 +2,17 @@ import { GATES, type GateKind } from "./Node";
 
 export type Tool = "pan" | "select";
 
-const DND_MIME = "application/x-trace-gate";
-
 interface ToolbarProps {
     tool: Tool;
     onToolChange: (t: Tool) => void;
+    onStartGateDrag: (kind: GateKind, clientX: number, clientY: number) => void;
 }
 
-export default function Toolbar({ tool, onToolChange }: ToolbarProps) {
-    function onGateDragStart(e: React.DragEvent, kind: GateKind) {
-        e.dataTransfer.setData(DND_MIME, kind);
-        e.dataTransfer.effectAllowed = "copy";
-    }
-
+export default function Toolbar({
+    tool,
+    onToolChange,
+    onStartGateDrag,
+}: ToolbarProps) {
     return (
         <div
             className="toolbar"
@@ -42,12 +40,14 @@ export default function Toolbar({ tool, onToolChange }: ToolbarProps) {
                 <button
                     key={kind}
                     className="tool-btn gate-chip"
-                    draggable
-                    onDragStart={(e) => onGateDragStart(e, kind)}
                     title={`Drag to add ${kind.toUpperCase()} gate`}
+                    onPointerDown={(e) => {
+                        if (e.button !== 0) return;
+                        e.preventDefault();
+                        onStartGateDrag(kind, e.clientX, e.clientY);
+                    }}
                 >
                     <GateMini kind={kind} />
-                    <span>{kind.toUpperCase()}</span>
                 </button>
             ))}
         </div>

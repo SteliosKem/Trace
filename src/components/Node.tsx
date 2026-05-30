@@ -44,7 +44,7 @@ export default function Node({
     function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
         if (e.button !== 0) return;
         e.stopPropagation();
-        onSelect?.();
+        if (!selected) onSelect?.();
         e.currentTarget.setPointerCapture(e.pointerId);
         dragRef.current = {
             startClientX: e.clientX,
@@ -58,7 +58,7 @@ export default function Node({
     function onContextMenu(e: React.MouseEvent<HTMLDivElement>) {
         e.preventDefault();
         e.stopPropagation();
-        onSelect?.();
+        if (!selected) onSelect?.();
         onNodeContextMenu?.(e.clientX, e.clientY);
     }
 

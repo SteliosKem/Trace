@@ -15,7 +15,15 @@ type NodeInstance = { id: string; kind: GateKind; x: number; y: number };
 type PinRef = { nodeId: string; pinKind: PinKind; pinIndex: number };
 type Connection = { id: string; from: PinRef; to: PinRef }; // from = output, to = input
 type Pending = { from: PinRef; cursor: { x: number; y: number } };
-const DND_MIME = "application/x-trace-gate";
+type ClipboardData = {
+    nodes: { kind: GateKind; x: number; y: number }[];
+    edges: {
+        fromIdx: number;
+        fromPin: number;
+        toIdx: number;
+        toPin: number;
+    }[];
+};
 
 export default function Workspace() {
     const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -29,11 +37,22 @@ export default function Workspace() {
     const [connections, setConnections] = useState<Connection[]>([]);
     const [pending, setPending] = useState<Pending | null>(null);
     const pendingFinishedRef = useRef(false);
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [tool, setTool] = useState<Tool>("pan");
-    const [clipboard, setClipboard] = useState<
-        { kind: GateKind; x: number; y: number } | null
-    >(null);
+    const [clipboard, setClipboard] = useState<ClipboardData | null>(null);
+    const [ghostDrag, setGhostDrag] = useState<{
+        kind: GateKind;
+        screenX: number;
+        screenY: number;
+    } | null>(null);
+    const [marquee, setMarquee] = useState<{
+        startX: number;
+        startY: number;
+        currentX: number;
+        currentY: number;
+    } | null>(null);
+    const canvasRef = useRef<HTMLDivElement | null>(null);
+    const selectedIdSet = new Set(selectedIds);
     const [menu, setMenu] = useState<{
         screenX: number;
         screenY: number;
@@ -48,78 +67,213 @@ export default function Workspace() {
         setConnections((prev) => prev.filter((c) => c.id !== id));
     }
 
-    function deleteNode(id: string) {
-        setNodes((prev) => prev.filter((n) => n.id !== id));
+    function deleteNodes(ids: string[]) {
+        if (ids.length === 0) return;
+        const set = new Set(ids);
+        setNodes((prev) => prev.filter((n) => !set.has(n.id)));
         setConnections((prev) =>
             prev.filter(
-                (c) => c.from.nodeId !== id && c.to.nodeId !== id,
+                (c) => !set.has(c.from.nodeId) && !set.has(c.to.nodeId),
             ),
         );
-        setSelectedId((s) => (s === id ? null : s));
+        setSelectedIds((prev) => prev.filter((id) => !set.has(id)));
     }
 
-    function copyNode(id: string) {
-        const n = nodes.find((nn) => nn.id === id);
-        if (n) setClipboard({ kind: n.kind, x: n.x, y: n.y });
+    function gatherSelection(ids: string[]): ClipboardData {
+        const set = new Set(ids);
+        const items = nodes.filter((n) => set.has(n.id));
+        const idToIdx = new Map(items.map((n, i) => [n.id, i] as const));
+        const edges = connections
+            .filter(
+                (c) => idToIdx.has(c.from.nodeId) && idToIdx.has(c.to.nodeId),
+            )
+            .map((c) => ({
+                fromIdx: idToIdx.get(c.from.nodeId)!,
+                fromPin: c.from.pinIndex,
+                toIdx: idToIdx.get(c.to.nodeId)!,
+                toPin: c.to.pinIndex,
+            }));
+        console.log("[gatherSelection]", {
+            ids,
+            allNodes: nodes.map((n) => n.id),
+            allConnections: connections.map((c) => ({
+                from: c.from.nodeId,
+                to: c.to.nodeId,
+            })),
+            pickedNodes: items.map((n) => n.id),
+            pickedEdges: edges,
+        });
+        return {
+            nodes: items.map((n) => ({ kind: n.kind, x: n.x, y: n.y })),
+            edges,
+        };
     }
 
-    function duplicateNode(id: string) {
-        const n = nodes.find((nn) => nn.id === id);
-        if (!n) return;
-        const newId = String(nextIdRef.current++);
-        setNodes((prev) => [
-            ...prev,
-            { id: newId, kind: n.kind, x: n.x + 4, y: n.y + 4 },
-        ]);
-        setSelectedId(newId);
+    function copyNodes(ids: string[]) {
+        const data = gatherSelection(ids);
+        if (data.nodes.length === 0) return;
+        setClipboard(data);
+    }
+
+    function spawnClipboard(data: ClipboardData, dx: number, dy: number) {
+        const fresh: NodeInstance[] = data.nodes.map((n) => ({
+            id: String(nextIdRef.current++),
+            kind: n.kind,
+            x: n.x + dx,
+            y: n.y + dy,
+        }));
+        const freshEdges: Connection[] = data.edges.map((e) => ({
+            id: `c${nextConnIdRef.current++}`,
+            from: {
+                nodeId: fresh[e.fromIdx].id,
+                pinKind: "output",
+                pinIndex: e.fromPin,
+            },
+            to: {
+                nodeId: fresh[e.toIdx].id,
+                pinKind: "input",
+                pinIndex: e.toPin,
+            },
+        }));
+        console.log("[spawnClipboard]", {
+            dataNodes: data.nodes.length,
+            dataEdges: data.edges.length,
+            freshNodes: fresh.map((n) => n.id),
+            freshEdges: freshEdges.map((e) => ({
+                from: e.from.nodeId,
+                to: e.to.nodeId,
+            })),
+        });
+        setNodes((prev) => [...prev, ...fresh]);
+        if (freshEdges.length) {
+            setConnections((prev) => {
+                console.log("[setConnections]", {
+                    prev: prev.length,
+                    adding: freshEdges.length,
+                    next: prev.length + freshEdges.length,
+                });
+                return [...prev, ...freshEdges];
+            });
+        }
+        setSelectedIds(fresh.map((n) => n.id));
+    }
+
+    function duplicateNodes(ids: string[]) {
+        const data = gatherSelection(ids);
+        if (data.nodes.length === 0) return;
+        spawnClipboard(data, 4, 4);
     }
 
     function pasteClipboard(at?: { x: number; y: number }) {
-        if (!clipboard) return;
-        const cfg = GATES[clipboard.kind];
-        const newId = String(nextIdRef.current++);
-        const w = cfg.width / SVG_SCALE;
-        const h = cfg.height / SVG_SCALE;
-        const x = at ? at.x - w / 2 : clipboard.x + 4;
-        const y = at ? at.y - h / 2 : clipboard.y + 4;
-        setNodes((prev) => [...prev, { id: newId, kind: clipboard.kind, x, y }]);
-        setSelectedId(newId);
+        if (!clipboard || clipboard.nodes.length === 0) return;
+        let dx: number, dy: number;
+        if (at) {
+            let minX = Infinity,
+                minY = Infinity,
+                maxX = -Infinity,
+                maxY = -Infinity;
+            for (const item of clipboard.nodes) {
+                const cfg = GATES[item.kind];
+                const w = cfg.width / SVG_SCALE;
+                const h = cfg.height / SVG_SCALE;
+                if (item.x < minX) minX = item.x;
+                if (item.y < minY) minY = item.y;
+                if (item.x + w > maxX) maxX = item.x + w;
+                if (item.y + h > maxY) maxY = item.y + h;
+            }
+            dx = at.x - (minX + maxX) / 2;
+            dy = at.y - (minY + maxY) / 2;
+        } else {
+            dx = 4;
+            dy = 4;
+        }
+        spawnClipboard(clipboard, dx, dy);
     }
 
-    // keyboard shortcuts (delete/copy/paste/duplicate)
-    const stateRef = useRef({ nodes, selectedId, clipboard });
-    stateRef.current = { nodes, selectedId, clipboard };
+    // keyboard shortcuts (delete/copy/paste/duplicate + shift-to-select)
+    const stateRef = useRef({ nodes, selectedIds, clipboard, tool });
+    stateRef.current = { nodes, selectedIds, clipboard, tool };
+    const opsRef = useRef({
+        copy: copyNodes,
+        paste: pasteClipboard,
+        duplicate: duplicateNodes,
+        deleteIds: deleteNodes,
+    });
+    opsRef.current = {
+        copy: copyNodes,
+        paste: pasteClipboard,
+        duplicate: duplicateNodes,
+        deleteIds: deleteNodes,
+    };
     useEffect(() => {
-        function onKey(e: KeyboardEvent) {
-            const t = e.target as HTMLElement | null;
-            if (!t) return;
-            if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
-            if (t.closest(".sidebar")) return; // sidebar owns its own delete handling
+        let shiftPrevTool: Tool | null = null;
 
-            const { selectedId, clipboard, nodes } = stateRef.current;
+        function isInputLike(t: HTMLElement | null) {
+            if (!t) return false;
+            return (
+                t.tagName === "INPUT" ||
+                t.tagName === "TEXTAREA" ||
+                t.isContentEditable
+            );
+        }
+
+        function isEditing(t: HTMLElement | null) {
+            if (!t) return false;
+            if (isInputLike(t)) return true;
+            if (t.closest(".sidebar")) return true;
+            return false;
+        }
+
+        function onKey(e: KeyboardEvent) {
+            // Shift → temporary marquee/select tool.
+            // Block only if a text input is focused; allow even when sidebar tree-row has focus.
+            if (e.key === "Shift" && !e.repeat) {
+                if (isInputLike(e.target as HTMLElement)) return;
+                if (shiftPrevTool === null) {
+                    shiftPrevTool = stateRef.current.tool;
+                    setTool("select");
+                }
+                return;
+            }
+
+            if (isEditing(e.target as HTMLElement)) return;
+
+            const { selectedIds } = stateRef.current;
             const mod = e.metaKey || e.ctrlKey;
             const k = e.key.toLowerCase();
+            const hasSel = selectedIds.length > 0;
 
-            if (selectedId && (e.key === "Backspace" || e.key === "Delete")) {
+            if (hasSel && (e.key === "Backspace" || e.key === "Delete")) {
                 e.preventDefault();
-                deleteNode(selectedId);
-            } else if (mod && k === "c" && selectedId) {
+                opsRef.current.deleteIds(selectedIds);
+            } else if (mod && k === "c" && hasSel) {
                 e.preventDefault();
-                copyNode(selectedId);
+                opsRef.current.copy(selectedIds);
             } else if (mod && k === "v") {
                 e.preventDefault();
-                pasteClipboard();
-            } else if (mod && k === "d" && selectedId) {
+                opsRef.current.paste();
+            } else if (mod && k === "d" && hasSel) {
                 e.preventDefault();
-                duplicateNode(selectedId);
+                opsRef.current.duplicate(selectedIds);
             } else if (e.key === "Escape") {
-                setSelectedId(null);
+                setSelectedIds([]);
                 setMenu(null);
             }
-            void nodes; void clipboard;
         }
+
+        function onKeyUp(e: KeyboardEvent) {
+            if (e.key === "Shift" && shiftPrevTool !== null) {
+                setTool(shiftPrevTool);
+                shiftPrevTool = null;
+            }
+        }
+
         document.addEventListener("keydown", onKey);
-        return () => document.removeEventListener("keydown", onKey);
+        document.addEventListener("keyup", onKeyUp);
+        return () => {
+            document.removeEventListener("keydown", onKey);
+            document.removeEventListener("keyup", onKeyUp);
+        };
     }, []);
 
     function onContextMenu(e: React.MouseEvent<HTMLElement>) {
@@ -152,7 +306,11 @@ export default function Workspace() {
         const x = worldX - cfg.width / SVG_SCALE / 2;
         const y = worldY - cfg.height / SVG_SCALE / 2;
         setNodes((prev) => [...prev, { id, kind, x, y }]);
-        setSelectedId(id);
+        setSelectedIds([id]);
+    }
+
+    function startGateDrag(kind: GateKind, clientX: number, clientY: number) {
+        setGhostDrag({ kind, screenX: clientX, screenY: clientY });
     }
 
     function addNode(kind: GateKind) {
@@ -161,27 +319,47 @@ export default function Workspace() {
         setMenu(null);
     }
 
-    function clientToWorld(rect: DOMRect, clientX: number, clientY: number) {
-        return {
-            x: (clientX - rect.left - offset.x) / scale,
-            y: (clientY - rect.top - offset.y) / scale,
+    // ghost-drag effect: runs while a gate chip is being dragged from the toolbar
+    const offsetRef = useRef(offset);
+    offsetRef.current = offset;
+    const scaleRef = useRef(scale);
+    scaleRef.current = scale;
+    useEffect(() => {
+        if (!ghostDrag) return;
+        const startKind = ghostDrag.kind;
+        function onMove(e: MouseEvent) {
+            setGhostDrag((g) =>
+                g ? { ...g, screenX: e.clientX, screenY: e.clientY } : null,
+            );
+        }
+        function onUp(e: MouseEvent) {
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                if (
+                    e.clientX >= rect.left &&
+                    e.clientX <= rect.right &&
+                    e.clientY >= rect.top &&
+                    e.clientY <= rect.bottom
+                ) {
+                    const wx =
+                        (e.clientX - rect.left - offsetRef.current.x) /
+                        scaleRef.current;
+                    const wy =
+                        (e.clientY - rect.top - offsetRef.current.y) /
+                        scaleRef.current;
+                    addNodeAt(startKind, wx, wy);
+                }
+            }
+            setGhostDrag(null);
+        }
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        return () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
         };
-    }
-
-    function onDragOver(e: React.DragEvent<HTMLDivElement>) {
-        if (!Array.from(e.dataTransfer.types).includes(DND_MIME)) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-    }
-
-    function onDrop(e: React.DragEvent<HTMLDivElement>) {
-        const kind = e.dataTransfer.getData(DND_MIME) as GateKind;
-        if (!kind) return;
-        e.preventDefault();
-        const rect = e.currentTarget.getBoundingClientRect();
-        const w = clientToWorld(rect, e.clientX, e.clientY);
-        addNodeAt(kind, w.x, w.y);
-    }
+    }, [ghostDrag?.kind]);
 
     useEffect(() => {
         if (!menu) return;
@@ -200,7 +378,20 @@ export default function Workspace() {
     }, [menu]);
 
     function moveNode(id: string, x: number, y: number) {
-        setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, x, y } : n)));
+        setNodes((prev) => {
+            const target = prev.find((n) => n.id === id);
+            if (!target) return prev;
+            const dx = x - target.x;
+            const dy = y - target.y;
+            const sel = stateRef.current.selectedIds;
+            if (sel.length > 1 && sel.includes(id)) {
+                const set = new Set(sel);
+                return prev.map((n) =>
+                    set.has(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n,
+                );
+            }
+            return prev.map((n) => (n.id === id ? { ...n, x, y } : n));
+        });
     }
 
     function pinWorldPos(node: NodeInstance, kind: PinKind, idx: number) {
@@ -263,21 +454,27 @@ export default function Workspace() {
         startOffsetY: number;
     } | null>(null);
 
-    function onPointerDown(e: React.PointerEvent<HTMLElement>) {
+    function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
         if (e.button !== 0) return;
         if (pending) return; // don't pan while wiring
-        setSelectedId(null); // clicked empty workspace → deselect
         e.currentTarget.setPointerCapture(e.pointerId);
-        panDragRef.current = {
-            startClientX: e.clientX,
-            startClientY: e.clientY,
-            startOffsetX: offset.x,
-            startOffsetY: offset.y,
-        };
-        setIsDragging(true);
+        if (tool === "select") {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            setMarquee({ startX: x, startY: y, currentX: x, currentY: y });
+        } else {
+            panDragRef.current = {
+                startClientX: e.clientX,
+                startClientY: e.clientY,
+                startOffsetX: offset.x,
+                startOffsetY: offset.y,
+            };
+            setIsDragging(true);
+        }
     }
 
-    function onPointerMove(e: React.PointerEvent<HTMLElement>) {
+    function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
         // pan
         const d = panDragRef.current;
         if (d) {
@@ -285,6 +482,14 @@ export default function Workspace() {
                 x: d.startOffsetX + (e.clientX - d.startClientX),
                 y: d.startOffsetY + (e.clientY - d.startClientY),
             });
+            return;
+        }
+        // marquee — update bottom-right
+        if (marquee) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            setMarquee((m) => (m ? { ...m, currentX: x, currentY: y } : null));
             return;
         }
         // pending connection — update cursor in world coords
@@ -296,13 +501,51 @@ export default function Workspace() {
         }
     }
 
-    function onPointerUp(e: React.PointerEvent<HTMLElement>) {
+    function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
         if (panDragRef.current) {
+            const d = panDragRef.current;
+            const moved =
+                Math.abs(e.clientX - d.startClientX) > 2 ||
+                Math.abs(e.clientY - d.startClientY) > 2;
             if (e.currentTarget.hasPointerCapture(e.pointerId)) {
                 e.currentTarget.releasePointerCapture(e.pointerId);
             }
             panDragRef.current = null;
             setIsDragging(false);
+            if (!moved) {
+                // it was a plain click on empty canvas → deselect
+                setSelectedIds([]);
+            }
+            return;
+        }
+        if (marquee) {
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+            }
+            const left = Math.min(marquee.startX, marquee.currentX);
+            const top = Math.min(marquee.startY, marquee.currentY);
+            const right = Math.max(marquee.startX, marquee.currentX);
+            const bottom = Math.max(marquee.startY, marquee.currentY);
+            const wl = (left - offset.x) / scale;
+            const wt = (top - offset.y) / scale;
+            const wr = (right - offset.x) / scale;
+            const wb = (bottom - offset.y) / scale;
+            const matched: string[] = [];
+            for (const n of nodes) {
+                const cfg = GATES[n.kind];
+                const nw = cfg.width / SVG_SCALE;
+                const nh = cfg.height / SVG_SCALE;
+                if (
+                    n.x + nw > wl &&
+                    n.x < wr &&
+                    n.y + nh > wt &&
+                    n.y < wb
+                ) {
+                    matched.push(n.id);
+                }
+            }
+            setSelectedIds(matched);
+            setMarquee(null);
             return;
         }
         if (pending && !pendingFinishedRef.current) {
@@ -333,8 +576,18 @@ export default function Workspace() {
     }
 
     return (
-        <section className={"workspace" + (isDragging ? " dragging" : "")}>
-            <Toolbar tool={tool} onToolChange={setTool} />
+        <section
+            className={
+                "workspace" +
+                (isDragging ? " dragging" : "") +
+                (tool === "select" ? " tool-select" : "")
+            }
+        >
+            <Toolbar
+                tool={tool}
+                onToolChange={setTool}
+                onStartGateDrag={startGateDrag}
+            />
             <div
                 className="workspace-canvas"
                 onPointerDown={onPointerDown}
@@ -343,8 +596,7 @@ export default function Workspace() {
                 onPointerCancel={onPointerUp}
                 onWheel={onWheel}
                 onContextMenu={onContextMenu}
-                onDragOver={onDragOver}
-                onDrop={onDrop}
+                ref={canvasRef}
             >
             <div
                 className="workspace-grid"
@@ -436,8 +688,8 @@ export default function Workspace() {
                         x={n.x}
                         y={n.y}
                         scale={scale}
-                        selected={selectedId === n.id}
-                        onSelect={() => setSelectedId(n.id)}
+                        selected={selectedIdSet.has(n.id)}
+                        onSelect={() => setSelectedIds([n.id])}
                         onMove={(x, y) => moveNode(n.id, x, y)}
                         onPinDown={(kind, idx) => startConnection(n.id, kind, idx)}
                         onPinUp={(kind, idx) => tryFinishConnection(n.id, kind, idx)}
@@ -446,7 +698,51 @@ export default function Workspace() {
                 ))}
             </div>
             <div className="workspace-vignette" />
+            {marquee && (
+                <div
+                    className="marquee"
+                    style={{
+                        left: Math.min(marquee.startX, marquee.currentX),
+                        top: Math.min(marquee.startY, marquee.currentY),
+                        width: Math.abs(marquee.currentX - marquee.startX),
+                        height: Math.abs(marquee.currentY - marquee.startY),
+                    }}
+                />
+            )}
             </div>
+            {ghostDrag && (() => {
+                const cfg = GATES[ghostDrag.kind];
+                const w = (cfg.width / SVG_SCALE) * scale;
+                const h = (cfg.height / SVG_SCALE) * scale;
+                return (
+                    <div
+                        className="gate-ghost"
+                        style={{
+                            position: "fixed",
+                            left: ghostDrag.screenX - w / 2,
+                            top: ghostDrag.screenY - h / 2,
+                            width: w,
+                            height: h,
+                            pointerEvents: "none",
+                            zIndex: 2000,
+                        }}
+                    >
+                        <svg
+                            width={w}
+                            height={h}
+                            viewBox={`0 0 ${cfg.width} ${cfg.height}`}
+                        >
+                            <path
+                                d={cfg.path}
+                                fill="rgba(255, 255, 255, 0.12)"
+                                stroke="rgba(138, 180, 255, 0.85)"
+                                strokeWidth="1.4"
+                                strokeLinejoin="round"
+                            />
+                        </svg>
+                    </div>
+                );
+            })()}
             {menu && menu.targetNodeId && (
                 <div
                     className="ctx-menu"
@@ -457,29 +753,29 @@ export default function Workspace() {
                     <button
                         className="ctx-item"
                         onClick={() => {
-                            copyNode(menu.targetNodeId!);
+                            copyNodes(selectedIds);
                             setMenu(null);
                         }}
                     >
-                        Copy
+                        Copy{selectedIds.length > 1 ? ` (${selectedIds.length})` : ""}
                     </button>
                     <button
                         className="ctx-item"
                         onClick={() => {
-                            duplicateNode(menu.targetNodeId!);
+                            duplicateNodes(selectedIds);
                             setMenu(null);
                         }}
                     >
-                        Duplicate
+                        Duplicate{selectedIds.length > 1 ? ` (${selectedIds.length})` : ""}
                     </button>
                     <button
                         className="ctx-item danger"
                         onClick={() => {
-                            deleteNode(menu.targetNodeId!);
+                            deleteNodes(selectedIds);
                             setMenu(null);
                         }}
                     >
-                        Delete
+                        Delete{selectedIds.length > 1 ? ` (${selectedIds.length})` : ""}
                     </button>
                 </div>
             )}
@@ -510,7 +806,7 @@ export default function Workspace() {
                                     setMenu(null);
                                 }}
                             >
-                                Paste {clipboard.kind.toUpperCase()}
+                                Paste{clipboard.nodes.length > 1 ? ` (${clipboard.nodes.length})` : ""}
                             </button>
                         </>
                     )}
