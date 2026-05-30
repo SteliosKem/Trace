@@ -12,9 +12,24 @@ const MAX_SCALE = 6;
 const GRID_SIZE = 5;
 
 type NodeInstance = { id: string; kind: GateKind; x: number; y: number };
-type PinRef = { nodeId: string; pinKind: PinKind; pinIndex: number };
-type Connection = { id: string; from: PinRef; to: PinRef }; // from = output, to = input
+type PinEndpoint = { type: "pin"; nodeId: string; pinKind: PinKind; pinIndex: number };
+type JunctionEndpoint = { type: "junction"; junctionId: string };
+type Endpoint = PinEndpoint | JunctionEndpoint;
+type PinRef = PinEndpoint; // alias for pending (always starts from a pin)
+type Connection = {
+    id: string;
+    from: Endpoint;
+    to: Endpoint;
+    midX?: number;
+    midY?: number;
+};
 type Pending = { from: PinRef; cursor: { x: number; y: number } };
+type Junction = {
+    id: string;
+    hostCableId: string;
+    segmentIdx: 0 | 1 | 2; // 0=h1, 1=vertical, 2=h2 of the Z-route
+    t: number; // 0..1 along the chosen segment
+};
 type ClipboardData = {
     nodes: { kind: GateKind; x: number; y: number }[];
     edges: {
@@ -22,6 +37,19 @@ type ClipboardData = {
         fromPin: number;
         toIdx: number;
         toPin: number;
+        midX?: number;
+    }[];
+    junctions: {
+        hostEdgeIdx: number;
+        segmentIdx: 0 | 1 | 2;
+        t: number;
+    }[];
+    junctionEdges: {
+        fromIdx: number;
+        fromPin: number;
+        toJunctionIdx: number;
+        midX?: number;
+        midY?: number;
     }[];
 };
 
@@ -35,8 +63,32 @@ export default function Workspace() {
         { id: "3", kind: "or", x: 90, y: 30 },
     ]);
     const [connections, setConnections] = useState<Connection[]>([]);
+    const [junctions, setJunctions] = useState<Junction[]>([]);
     const [pending, setPending] = useState<Pending | null>(null);
     const pendingFinishedRef = useRef(false);
+    const nextJunctionIdRef = useRef(0);
+    const midDragRef = useRef<{ id: string } | null>(null);
+    const junctionDragRef = useRef<{
+        id: string;
+        startClient: { x: number; y: number };
+        moved: boolean;
+    } | null>(null);
+    const [selectedJunctionIds, setSelectedJunctionIds] = useState<string[]>([]);
+    const selectedJunctionSet = new Set(selectedJunctionIds);
+
+    function deleteJunctions(ids: string[]) {
+        if (ids.length === 0) return;
+        const set = new Set(ids);
+        setJunctions((prev) => prev.filter((j) => !set.has(j.id)));
+        setConnections((prev) =>
+            prev.filter((c) => {
+                if (c.from.type === "junction" && set.has(c.from.junctionId)) return false;
+                if (c.to.type === "junction" && set.has(c.to.junctionId)) return false;
+                return true;
+            }),
+        );
+        setSelectedJunctionIds((prev) => prev.filter((id) => !set.has(id)));
+    }
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [tool, setTool] = useState<Tool>("pan");
     const [clipboard, setClipboard] = useState<ClipboardData | null>(null);
@@ -72,9 +124,11 @@ export default function Workspace() {
         const set = new Set(ids);
         setNodes((prev) => prev.filter((n) => !set.has(n.id)));
         setConnections((prev) =>
-            prev.filter(
-                (c) => !set.has(c.from.nodeId) && !set.has(c.to.nodeId),
-            ),
+            prev.filter((c) => {
+                const fromGone = c.from.type === "pin" && set.has(c.from.nodeId);
+                const toGone = c.to.type === "pin" && set.has(c.to.nodeId);
+                return !fromGone && !toGone;
+            }),
         );
         setSelectedIds((prev) => prev.filter((id) => !set.has(id)));
     }
@@ -83,29 +137,62 @@ export default function Workspace() {
         const set = new Set(ids);
         const items = nodes.filter((n) => set.has(n.id));
         const idToIdx = new Map(items.map((n, i) => [n.id, i] as const));
-        const edges = connections
-            .filter(
-                (c) => idToIdx.has(c.from.nodeId) && idToIdx.has(c.to.nodeId),
-            )
-            .map((c) => ({
-                fromIdx: idToIdx.get(c.from.nodeId)!,
-                fromPin: c.from.pinIndex,
-                toIdx: idToIdx.get(c.to.nodeId)!,
-                toPin: c.to.pinIndex,
-            }));
-        console.log("[gatherSelection]", {
-            ids,
-            allNodes: nodes.map((n) => n.id),
-            allConnections: connections.map((c) => ({
-                from: c.from.nodeId,
-                to: c.to.nodeId,
-            })),
-            pickedNodes: items.map((n) => n.id),
-            pickedEdges: edges,
-        });
+
+        const pinEdges = connections.filter(
+            (c) =>
+                c.from.type === "pin" &&
+                c.to.type === "pin" &&
+                idToIdx.has(c.from.nodeId) &&
+                idToIdx.has(c.to.nodeId),
+        );
+        const cableIdToIdx = new Map(
+            pinEdges.map((c, i) => [c.id, i] as const),
+        );
+
+        const hostedJunctions = junctions.filter((j) =>
+            cableIdToIdx.has(j.hostCableId),
+        );
+        const junctionIdToIdx = new Map(
+            hostedJunctions.map((j, i) => [j.id, i] as const),
+        );
+
+        const junctionFeeders = connections.filter(
+            (c) =>
+                c.from.type === "pin" &&
+                c.to.type === "junction" &&
+                idToIdx.has(c.from.nodeId) &&
+                junctionIdToIdx.has(c.to.junctionId),
+        );
+
         return {
             nodes: items.map((n) => ({ kind: n.kind, x: n.x, y: n.y })),
-            edges,
+            edges: pinEdges.map((c) => {
+                const from = c.from as PinEndpoint;
+                const to = c.to as PinEndpoint;
+                return {
+                    fromIdx: idToIdx.get(from.nodeId)!,
+                    fromPin: from.pinIndex,
+                    toIdx: idToIdx.get(to.nodeId)!,
+                    toPin: to.pinIndex,
+                    midX: c.midX,
+                };
+            }),
+            junctions: hostedJunctions.map((j) => ({
+                hostEdgeIdx: cableIdToIdx.get(j.hostCableId)!,
+                segmentIdx: j.segmentIdx,
+                t: j.t,
+            })),
+            junctionEdges: junctionFeeders.map((c) => {
+                const from = c.from as PinEndpoint;
+                const to = c.to as JunctionEndpoint;
+                return {
+                    fromIdx: idToIdx.get(from.nodeId)!,
+                    fromPin: from.pinIndex,
+                    toJunctionIdx: junctionIdToIdx.get(to.junctionId)!,
+                    midX: c.midX,
+                    midY: c.midY,
+                };
+            }),
         };
     }
 
@@ -125,35 +212,47 @@ export default function Workspace() {
         const freshEdges: Connection[] = data.edges.map((e) => ({
             id: `c${nextConnIdRef.current++}`,
             from: {
+                type: "pin",
                 nodeId: fresh[e.fromIdx].id,
                 pinKind: "output",
                 pinIndex: e.fromPin,
             },
             to: {
+                type: "pin",
                 nodeId: fresh[e.toIdx].id,
                 pinKind: "input",
                 pinIndex: e.toPin,
             },
+            midX: e.midX,
         }));
-        console.log("[spawnClipboard]", {
-            dataNodes: data.nodes.length,
-            dataEdges: data.edges.length,
-            freshNodes: fresh.map((n) => n.id),
-            freshEdges: freshEdges.map((e) => ({
-                from: e.from.nodeId,
-                to: e.to.nodeId,
-            })),
-        });
+        const freshJunctions: Junction[] = data.junctions.map((j) => ({
+            id: `j${nextJunctionIdRef.current++}`,
+            hostCableId: freshEdges[j.hostEdgeIdx].id,
+            segmentIdx: j.segmentIdx,
+            t: j.t,
+        }));
+        const freshJunctionEdges: Connection[] = data.junctionEdges.map((e) => ({
+            id: `c${nextConnIdRef.current++}`,
+            from: {
+                type: "pin",
+                nodeId: fresh[e.fromIdx].id,
+                pinKind: "output",
+                pinIndex: e.fromPin,
+            },
+            to: {
+                type: "junction",
+                junctionId: freshJunctions[e.toJunctionIdx].id,
+            },
+            midX: e.midX,
+            midY: e.midY,
+        }));
         setNodes((prev) => [...prev, ...fresh]);
-        if (freshEdges.length) {
-            setConnections((prev) => {
-                console.log("[setConnections]", {
-                    prev: prev.length,
-                    adding: freshEdges.length,
-                    next: prev.length + freshEdges.length,
-                });
-                return [...prev, ...freshEdges];
-            });
+        const allFreshEdges = [...freshEdges, ...freshJunctionEdges];
+        if (allFreshEdges.length) {
+            setConnections((prev) => [...prev, ...allFreshEdges]);
+        }
+        if (freshJunctions.length) {
+            setJunctions((prev) => [...prev, ...freshJunctions]);
         }
         setSelectedIds(fresh.map((n) => n.id));
     }
@@ -191,19 +290,33 @@ export default function Workspace() {
     }
 
     // keyboard shortcuts (delete/copy/paste/duplicate + shift-to-select)
-    const stateRef = useRef({ nodes, selectedIds, clipboard, tool });
-    stateRef.current = { nodes, selectedIds, clipboard, tool };
+    const stateRef = useRef({
+        nodes,
+        selectedIds,
+        selectedJunctionIds,
+        clipboard,
+        tool,
+    });
+    stateRef.current = {
+        nodes,
+        selectedIds,
+        selectedJunctionIds,
+        clipboard,
+        tool,
+    };
     const opsRef = useRef({
         copy: copyNodes,
         paste: pasteClipboard,
         duplicate: duplicateNodes,
         deleteIds: deleteNodes,
+        deleteJunctionIds: deleteJunctions,
     });
     opsRef.current = {
         copy: copyNodes,
         paste: pasteClipboard,
         duplicate: duplicateNodes,
         deleteIds: deleteNodes,
+        deleteJunctionIds: deleteJunctions,
     };
     useEffect(() => {
         let shiftPrevTool: Tool | null = null;
@@ -238,25 +351,30 @@ export default function Workspace() {
 
             if (isEditing(e.target as HTMLElement)) return;
 
-            const { selectedIds } = stateRef.current;
+            const { selectedIds, selectedJunctionIds } = stateRef.current;
             const mod = e.metaKey || e.ctrlKey;
             const k = e.key.toLowerCase();
-            const hasSel = selectedIds.length > 0;
+            const hasNodes = selectedIds.length > 0;
+            const hasJunctions = selectedJunctionIds.length > 0;
+            const hasAny = hasNodes || hasJunctions;
 
-            if (hasSel && (e.key === "Backspace" || e.key === "Delete")) {
+            if (hasAny && (e.key === "Backspace" || e.key === "Delete")) {
                 e.preventDefault();
-                opsRef.current.deleteIds(selectedIds);
-            } else if (mod && k === "c" && hasSel) {
+                if (hasNodes) opsRef.current.deleteIds(selectedIds);
+                if (hasJunctions)
+                    opsRef.current.deleteJunctionIds(selectedJunctionIds);
+            } else if (mod && k === "c" && hasNodes) {
                 e.preventDefault();
                 opsRef.current.copy(selectedIds);
             } else if (mod && k === "v") {
                 e.preventDefault();
                 opsRef.current.paste();
-            } else if (mod && k === "d" && hasSel) {
+            } else if (mod && k === "d" && hasNodes) {
                 e.preventDefault();
                 opsRef.current.duplicate(selectedIds);
             } else if (e.key === "Escape") {
                 setSelectedIds([]);
+                setSelectedJunctionIds([]);
                 setMenu(null);
             }
         }
@@ -378,20 +496,57 @@ export default function Workspace() {
     }, [menu]);
 
     function moveNode(id: string, x: number, y: number) {
-        setNodes((prev) => {
-            const target = prev.find((n) => n.id === id);
-            if (!target) return prev;
-            const dx = x - target.x;
-            const dy = y - target.y;
-            const sel = stateRef.current.selectedIds;
-            if (sel.length > 1 && sel.includes(id)) {
-                const set = new Set(sel);
-                return prev.map((n) =>
+        const target = nodes.find((n) => n.id === id);
+        if (!target) return;
+        const dx = x - target.x;
+        const dy = y - target.y;
+        const sel = stateRef.current.selectedIds;
+
+        if (sel.length > 1 && sel.includes(id)) {
+            const set = new Set(sel);
+            setNodes((prev) =>
+                prev.map((n) =>
                     set.has(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n,
-                );
+                ),
+            );
+
+            // Shift the custom bends of cables whose endpoints are
+            // entirely inside the selection. For a pin→junction cable, the
+            // junction itself follows automatically (it's anchored to its
+            // host cable's geometry), but only if that host cable is also
+            // entirely inside the selection — so check that too.
+            const cableInSelection = new Map<string, boolean>();
+            const isPinSelected = (ep: Endpoint) =>
+                ep.type === "pin" && set.has(ep.nodeId);
+            for (const c of connections) {
+                if (isPinSelected(c.from) && isPinSelected(c.to)) {
+                    cableInSelection.set(c.id, true);
+                }
             }
-            return prev.map((n) => (n.id === id ? { ...n, x, y } : n));
-        });
+            const isInSelection = (c: Connection): boolean => {
+                if (!isPinSelected(c.from)) return false;
+                if (c.to.type === "pin") return set.has(c.to.nodeId);
+                const jid = c.to.junctionId;
+                const j = junctions.find((jj) => jj.id === jid);
+                if (!j) return false;
+                return cableInSelection.get(j.hostCableId) === true;
+            };
+
+            setConnections((cs) =>
+                cs.map((c) => {
+                    if (!isInSelection(c)) return c;
+                    if (c.midX === undefined && c.midY === undefined) return c;
+                    return {
+                        ...c,
+                        midX: c.midX !== undefined ? c.midX + dx : undefined,
+                        midY: c.midY !== undefined ? c.midY + dy : undefined,
+                    };
+                }),
+            );
+            return;
+        }
+
+        setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, x, y } : n)));
     }
 
     function pinWorldPos(node: NodeInstance, kind: PinKind, idx: number) {
@@ -403,12 +558,192 @@ export default function Workspace() {
         };
     }
 
+    function endpointWorldPos(ep: Endpoint): { x: number; y: number } | null {
+        if (ep.type === "pin") {
+            const node = nodes.find((n) => n.id === ep.nodeId);
+            if (!node) return null;
+            return pinWorldPos(node, ep.pinKind, ep.pinIndex);
+        }
+        const j = junctions.find((jj) => jj.id === ep.junctionId);
+        if (!j) return null;
+        return junctionWorldPos(j);
+    }
+
+    function cablePathKind(c: Connection, depth = 0): "hvh" | "vhv" {
+        if (depth > 10) return "hvh"; // safety against pathological loops
+        if (c.to.type !== "junction") return "hvh";
+        const jid = c.to.junctionId;
+        const j = junctions.find((jj) => jj.id === jid);
+        if (!j) return "hvh";
+        const host = connections.find((cc) => cc.id === j.hostCableId);
+        if (!host) return "hvh";
+        const hostKind = cablePathKind(host, depth + 1);
+        // Is junction sitting on a horizontal piece of the host?
+        const onHorizontal =
+            (hostKind === "hvh" && (j.segmentIdx === 0 || j.segmentIdx === 2)) ||
+            (hostKind === "vhv" && j.segmentIdx === 1);
+        // Approach is perpendicular: horizontal host → vertical approach → vhv;
+        //                            vertical host   → horizontal approach → hvh.
+        return onHorizontal ? "vhv" : "hvh";
+    }
+
+    function cableDefaults(c: Connection, p1: { x: number; y: number }, p2: { x: number; y: number }) {
+        const isJunction = c.to.type === "junction";
+        const midX = c.midX ?? (isJunction ? p1.x : (p1.x + p2.x) / 2);
+        const midY = c.midY ?? p1.y;
+        return { midX, midY };
+    }
+
+    function junctionWorldPos(j: Junction): { x: number; y: number } | null {
+        const host = connections.find((c) => c.id === j.hostCableId);
+        if (!host) return null;
+        const p1 = endpointWorldPos(host.from);
+        const p2 = endpointWorldPos(host.to);
+        if (!p1 || !p2) return null;
+        const { midX, midY } = cableDefaults(host, p1, p2);
+        return computeOnSegment(
+            cablePathKind(host),
+            j.segmentIdx,
+            j.t,
+            p1,
+            p2,
+            midX,
+            midY,
+        );
+    }
+
+    function computeOnSegment(
+        pathKind: "hvh" | "vhv",
+        segIdx: 0 | 1 | 2,
+        t: number,
+        p1: { x: number; y: number },
+        p2: { x: number; y: number },
+        midX: number,
+        midY: number,
+    ): { x: number; y: number } {
+        if (pathKind === "hvh") {
+            if (segIdx === 0) return { x: p1.x + (midX - p1.x) * t, y: p1.y };
+            if (segIdx === 1) return { x: midX, y: p1.y + (p2.y - p1.y) * t };
+            return { x: midX + (p2.x - midX) * t, y: p2.y };
+        }
+        // vhv
+        if (segIdx === 0) return { x: p1.x, y: p1.y + (midY - p1.y) * t };
+        if (segIdx === 1) return { x: p1.x + (p2.x - p1.x) * t, y: midY };
+        return { x: p2.x, y: midY + (p2.y - midY) * t };
+    }
+
+    function projectToCable(
+        pathKind: "hvh" | "vhv",
+        p1: { x: number; y: number },
+        p2: { x: number; y: number },
+        midX: number,
+        midY: number,
+        wx: number,
+        wy: number,
+    ): { segmentIdx: 0 | 1 | 2; t: number } {
+        const clamp = (v: number) => Math.max(0, Math.min(1, v));
+        if (pathKind === "hvh") {
+            const h1Dist = Math.abs(wy - p1.y);
+            const vDist = Math.abs(wx - midX);
+            const h2Dist = Math.abs(wy - p2.y);
+            if (h1Dist <= vDist && h1Dist <= h2Dist) {
+                const len = midX - p1.x;
+                return {
+                    segmentIdx: 0,
+                    t: len === 0 ? 0 : clamp((wx - p1.x) / len),
+                };
+            }
+            if (vDist <= h2Dist) {
+                const len = p2.y - p1.y;
+                return {
+                    segmentIdx: 1,
+                    t: len === 0 ? 0 : clamp((wy - p1.y) / len),
+                };
+            }
+            const len = p2.x - midX;
+            return {
+                segmentIdx: 2,
+                t: len === 0 ? 0 : clamp((wx - midX) / len),
+            };
+        }
+        // vhv
+        const v1Dist = Math.abs(wx - p1.x);
+        const hDist = Math.abs(wy - midY);
+        const v2Dist = Math.abs(wx - p2.x);
+        if (v1Dist <= hDist && v1Dist <= v2Dist) {
+            const len = midY - p1.y;
+            return {
+                segmentIdx: 0,
+                t: len === 0 ? 0 : clamp((wy - p1.y) / len),
+            };
+        }
+        if (hDist <= v2Dist) {
+            const len = p2.x - p1.x;
+            return {
+                segmentIdx: 1,
+                t: len === 0 ? 0 : clamp((wx - p1.x) / len),
+            };
+        }
+        const len = p2.y - midY;
+        return {
+            segmentIdx: 2,
+            t: len === 0 ? 0 : clamp((wy - midY) / len),
+        };
+    }
+
+    function dropOnCable(
+        cable: Connection,
+        clientX: number,
+        clientY: number,
+    ) {
+        if (!pending) return false;
+        const canvas = canvasRef.current;
+        if (!canvas) return false;
+        const rect = canvas.getBoundingClientRect();
+        const wx = (clientX - rect.left - offset.x) / scale;
+        const wy = (clientY - rect.top - offset.y) / scale;
+        const p1 = endpointWorldPos(cable.from);
+        const p2 = endpointWorldPos(cable.to);
+        if (!p1 || !p2) return false;
+        const { midX, midY } = cableDefaults(cable, p1, p2);
+        const proj = projectToCable(
+            cablePathKind(cable),
+            p1,
+            p2,
+            midX,
+            midY,
+            wx,
+            wy,
+        );
+        const jid = `j${nextJunctionIdRef.current++}`;
+        setJunctions((js) => [
+            ...js,
+            {
+                id: jid,
+                hostCableId: cable.id,
+                segmentIdx: proj.segmentIdx,
+                t: proj.t,
+            },
+        ]);
+        setConnections((cs) => [
+            ...cs,
+            {
+                id: `c${nextConnIdRef.current++}`,
+                from: pending.from,
+                to: { type: "junction", junctionId: jid },
+            },
+        ]);
+        pendingFinishedRef.current = true;
+        setPending(null);
+        return true;
+    }
+
     function startConnection(nodeId: string, kind: PinKind, idx: number) {
         const node = nodes.find((n) => n.id === nodeId);
         if (!node) return;
         const pos = pinWorldPos(node, kind, idx);
         setPending({
-            from: { nodeId, pinKind: kind, pinIndex: idx },
+            from: { type: "pin", nodeId, pinKind: kind, pinIndex: idx },
             cursor: pos,
         });
         pendingFinishedRef.current = false;
@@ -424,15 +759,17 @@ export default function Workspace() {
             const from: PinRef =
                 p.from.pinKind === "output"
                     ? p.from
-                    : { nodeId, pinKind: "output", pinIndex: idx };
+                    : { type: "pin", nodeId, pinKind: "output", pinIndex: idx };
             const to: PinRef =
                 p.from.pinKind === "input"
                     ? p.from
-                    : { nodeId, pinKind: "input", pinIndex: idx };
+                    : { type: "pin", nodeId, pinKind: "input", pinIndex: idx };
 
             setConnections((cs) => {
                 const exists = cs.some(
                     (c) =>
+                        c.from.type === "pin" &&
+                        c.to.type === "pin" &&
                         c.from.nodeId === from.nodeId &&
                         c.from.pinIndex === from.pinIndex &&
                         c.to.nodeId === to.nodeId &&
@@ -515,6 +852,7 @@ export default function Workspace() {
             if (!moved) {
                 // it was a plain click on empty canvas → deselect
                 setSelectedIds([]);
+                setSelectedJunctionIds([]);
             }
             return;
         }
@@ -623,12 +961,27 @@ export default function Workspace() {
                     }}
                 >
                     {connections.map((c) => {
-                        const fromNode = nodes.find((n) => n.id === c.from.nodeId);
-                        const toNode = nodes.find((n) => n.id === c.to.nodeId);
-                        if (!fromNode || !toNode) return null;
-                        const p1 = pinWorldPos(fromNode, "output", c.from.pinIndex);
-                        const p2 = pinWorldPos(toNode, "input", c.to.pinIndex);
-                        const d = orthPath(p1.x, p1.y, p2.x, p2.y);
+                        const p1 = endpointWorldPos(c.from);
+                        const p2 = endpointWorldPos(c.to);
+                        if (!p1 || !p2) return null;
+                        // pathKind: hvh = h-v-h (mid is vertical at midX);
+                        //           vhv = v-h-v (mid is horizontal at midY)
+                        let pathKind: "hvh" | "vhv" = "hvh";
+                        if (c.to.type === "junction") {
+                            const j = junctions.find(
+                                (jj) => jj.id === (c.to as JunctionEndpoint).junctionId,
+                            );
+                            pathKind = j && j.segmentIdx === 1 ? "hvh" : "vhv";
+                        }
+                        const defaultMidX =
+                            c.to.type === "junction" ? p1.x : (p1.x + p2.x) / 2;
+                        const defaultMidY = p1.y;
+                        const midX = c.midX ?? defaultMidX;
+                        const midY = c.midY ?? defaultMidY;
+                        const d =
+                            pathKind === "hvh"
+                                ? orthPath(p1.x, p1.y, p2.x, p2.y, midX)
+                                : vhvPath(p1.x, p1.y, p2.x, p2.y, midY);
                         return (
                             <g key={c.id} className="cable">
                                 <path
@@ -640,8 +993,14 @@ export default function Workspace() {
                                     style={{ cursor: "pointer" }}
                                     onPointerDown={(e) => e.stopPropagation()}
                                     onClick={(e) => {
+                                        if (pending) return;
                                         e.stopPropagation();
                                         deleteConnection(c.id);
+                                    }}
+                                    onPointerUp={(e) => {
+                                        if (!pending) return;
+                                        e.stopPropagation();
+                                        dropOnCable(c, e.clientX, e.clientY);
                                     }}
                                 />
                                 <path
@@ -654,7 +1013,194 @@ export default function Workspace() {
                                     strokeLinecap="round"
                                     pointerEvents="none"
                                 />
+                                {(() => {
+                                    const horizSpan = Math.abs(p2.x - p1.x);
+                                    const vertSpan = Math.abs(p2.y - p1.y);
+                                    if (pathKind === "hvh") {
+                                        if (vertSpan < 0.001) return null;
+                                        return (
+                                            <line
+                                                className="cable-mid-handle"
+                                                x1={midX}
+                                                y1={Math.min(p1.y, p2.y)}
+                                                x2={midX}
+                                                y2={Math.max(p1.y, p2.y)}
+                                                stroke="transparent"
+                                                strokeWidth="1.6"
+                                                pointerEvents="stroke"
+                                                style={{ cursor: pending ? "pointer" : "ew-resize" }}
+                                                onPointerDown={(e) => {
+                                                    if (pending) return;
+                                                    e.stopPropagation();
+                                                    (e.currentTarget as SVGLineElement).setPointerCapture(e.pointerId);
+                                                    midDragRef.current = { id: c.id };
+                                                }}
+                                                onPointerMove={(e) => {
+                                                    if (!midDragRef.current) return;
+                                                    e.stopPropagation();
+                                                    const rect = canvasRef.current?.getBoundingClientRect();
+                                                    if (!rect) return;
+                                                    const wx = (e.clientX - rect.left - offset.x) / scale;
+                                                    const cid = c.id;
+                                                    setConnections((cs) =>
+                                                        cs.map((con) =>
+                                                            con.id === cid ? { ...con, midX: wx } : con,
+                                                        ),
+                                                    );
+                                                }}
+                                                onPointerUp={(e) => {
+                                                    if (pending) {
+                                                        e.stopPropagation();
+                                                        dropOnCable(c, e.clientX, e.clientY);
+                                                        return;
+                                                    }
+                                                    if (!midDragRef.current) return;
+                                                    e.stopPropagation();
+                                                    if ((e.currentTarget as SVGLineElement).hasPointerCapture(e.pointerId)) {
+                                                        (e.currentTarget as SVGLineElement).releasePointerCapture(e.pointerId);
+                                                    }
+                                                    midDragRef.current = null;
+                                                }}
+                                            />
+                                        );
+                                    }
+                                    if (horizSpan < 0.001) return null;
+                                    return (
+                                        <line
+                                            className="cable-mid-handle"
+                                            x1={Math.min(p1.x, p2.x)}
+                                            y1={midY}
+                                            x2={Math.max(p1.x, p2.x)}
+                                            y2={midY}
+                                            stroke="transparent"
+                                            strokeWidth="1.6"
+                                            pointerEvents="stroke"
+                                            style={{ cursor: pending ? "pointer" : "ns-resize" }}
+                                            onPointerDown={(e) => {
+                                                if (pending) return;
+                                                e.stopPropagation();
+                                                (e.currentTarget as SVGLineElement).setPointerCapture(e.pointerId);
+                                                midDragRef.current = { id: c.id };
+                                            }}
+                                            onPointerMove={(e) => {
+                                                if (!midDragRef.current) return;
+                                                e.stopPropagation();
+                                                const rect = canvasRef.current?.getBoundingClientRect();
+                                                if (!rect) return;
+                                                const wy = (e.clientY - rect.top - offset.y) / scale;
+                                                const cid = c.id;
+                                                setConnections((cs) =>
+                                                    cs.map((con) =>
+                                                        con.id === cid ? { ...con, midY: wy } : con,
+                                                    ),
+                                                );
+                                            }}
+                                            onPointerUp={(e) => {
+                                                if (pending) {
+                                                    e.stopPropagation();
+                                                    dropOnCable(c, e.clientX, e.clientY);
+                                                    return;
+                                                }
+                                                if (!midDragRef.current) return;
+                                                e.stopPropagation();
+                                                if ((e.currentTarget as SVGLineElement).hasPointerCapture(e.pointerId)) {
+                                                    (e.currentTarget as SVGLineElement).releasePointerCapture(e.pointerId);
+                                                }
+                                                midDragRef.current = null;
+                                            }}
+                                        />
+                                    );
+                                })()}
                             </g>
+                        );
+                    })}
+                    {junctions.map((j) => {
+                        const pos = junctionWorldPos(j);
+                        if (!pos) return null;
+                        const isSelected = selectedJunctionSet.has(j.id);
+                        return (
+                            <circle
+                                key={j.id}
+                                cx={pos.x}
+                                cy={pos.y}
+                                r={isSelected ? "0.9" : "0.7"}
+                                fill={
+                                    isSelected
+                                        ? "var(--accent, #8ab4ff)"
+                                        : "rgba(220, 224, 232, 0.95)"
+                                }
+                                stroke="rgba(15, 17, 20, 0.6)"
+                                strokeWidth="0.2"
+                                style={{ cursor: "grab" }}
+                                onPointerDown={(e) => {
+                                    if (e.button !== 0) return;
+                                    e.stopPropagation();
+                                    (
+                                        e.currentTarget as SVGCircleElement
+                                    ).setPointerCapture(e.pointerId);
+                                    junctionDragRef.current = {
+                                        id: j.id,
+                                        startClient: { x: e.clientX, y: e.clientY },
+                                        moved: false,
+                                    };
+                                }}
+                                onPointerMove={(e) => {
+                                    const d = junctionDragRef.current;
+                                    if (!d || d.id !== j.id) return;
+                                    e.stopPropagation();
+                                    const dx = e.clientX - d.startClient.x;
+                                    const dy = e.clientY - d.startClient.y;
+                                    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) d.moved = true;
+                                    const host = connections.find(
+                                        (cc) => cc.id === j.hostCableId,
+                                    );
+                                    if (!host) return;
+                                    const hp1 = endpointWorldPos(host.from);
+                                    const hp2 = endpointWorldPos(host.to);
+                                    if (!hp1 || !hp2) return;
+                                    const { midX: hmx, midY: hmy } = cableDefaults(host, hp1, hp2);
+                                    const rect = canvasRef.current?.getBoundingClientRect();
+                                    if (!rect) return;
+                                    const wx = (e.clientX - rect.left - offset.x) / scale;
+                                    const wy = (e.clientY - rect.top - offset.y) / scale;
+                                    const proj = projectToCable(
+                                        cablePathKind(host),
+                                        hp1,
+                                        hp2,
+                                        hmx,
+                                        hmy,
+                                        wx,
+                                        wy,
+                                    );
+                                    setJunctions((js) =>
+                                        js.map((jj) =>
+                                            jj.id === j.id
+                                                ? { ...jj, segmentIdx: proj.segmentIdx, t: proj.t }
+                                                : jj,
+                                        ),
+                                    );
+                                }}
+                                onPointerUp={(e) => {
+                                    const d = junctionDragRef.current;
+                                    if (!d || d.id !== j.id) return;
+                                    e.stopPropagation();
+                                    if (
+                                        (e.currentTarget as SVGCircleElement).hasPointerCapture(
+                                            e.pointerId,
+                                        )
+                                    ) {
+                                        (
+                                            e.currentTarget as SVGCircleElement
+                                        ).releasePointerCapture(e.pointerId);
+                                    }
+                                    if (!d.moved) {
+                                        // click → select just this junction
+                                        setSelectedIds([]);
+                                        setSelectedJunctionIds([j.id]);
+                                    }
+                                    junctionDragRef.current = null;
+                                }}
+                            />
                         );
                     })}
                     {pending &&
@@ -816,7 +1362,40 @@ export default function Workspace() {
     );
 }
 
-function orthPath(x1: number, y1: number, x2: number, y2: number): string {
+function vhvPath(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    midY: number,
+): string {
+    const r = 1;
+    if (Math.abs(x2 - x1) < 0.001 || Math.abs(y2 - y1) < 0.001) {
+        return `M ${x1} ${y1} L ${x2} ${y2}`;
+    }
+    const signY1 = Math.sign(midY - y1) || 1;
+    const signY2 = Math.sign(y2 - midY) || 1;
+    const signX = Math.sign(x2 - x1) || 1;
+    const leg1 = Math.abs(midY - y1);
+    const leg2 = Math.abs(y2 - midY);
+    const cr = Math.min(r, leg1 / 2, leg2 / 2, Math.abs(x2 - x1) / 2);
+    return [
+        `M ${x1} ${y1}`,
+        `L ${x1} ${midY - signY1 * cr}`,
+        `Q ${x1} ${midY} ${x1 + signX * cr} ${midY}`,
+        `L ${x2 - signX * cr} ${midY}`,
+        `Q ${x2} ${midY} ${x2} ${midY + signY2 * cr}`,
+        `L ${x2} ${y2}`,
+    ].join(" ");
+}
+
+function orthPath(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    midX?: number,
+): string {
     const r = 1; // corner radius in world units
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -824,17 +1403,20 @@ function orthPath(x1: number, y1: number, x2: number, y2: number): string {
     if (Math.abs(dy) < 0.001) return `M ${x1} ${y1} L ${x2} ${y2}`;
     if (Math.abs(dx) < 0.001) return `M ${x1} ${y1} L ${x2} ${y2}`;
 
-    const midX = x1 + dx / 2;
-    const signX = Math.sign(dx);
+    const m = midX ?? x1 + dx / 2;
+    const signX1 = Math.sign(m - x1) || 1;
+    const signX2 = Math.sign(x2 - m) || 1;
     const signY = Math.sign(dy);
-    const cr = Math.min(r, Math.abs(dx) / 2, Math.abs(dy) / 2);
+    const leg1 = Math.abs(m - x1);
+    const leg2 = Math.abs(x2 - m);
+    const cr = Math.min(r, leg1 / 2, leg2 / 2, Math.abs(dy) / 2);
 
     return [
         `M ${x1} ${y1}`,
-        `L ${midX - signX * cr} ${y1}`,
-        `Q ${midX} ${y1} ${midX} ${y1 + signY * cr}`,
-        `L ${midX} ${y2 - signY * cr}`,
-        `Q ${midX} ${y2} ${midX + signX * cr} ${y2}`,
+        `L ${m - signX1 * cr} ${y1}`,
+        `Q ${m} ${y1} ${m} ${y1 + signY * cr}`,
+        `L ${m} ${y2 - signY * cr}`,
+        `Q ${m} ${y2} ${m + signX2 * cr} ${y2}`,
         `L ${x2} ${y2}`,
     ].join(" ");
 }
