@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import Node, {
     GATES,
     SVG_SCALE,
@@ -6,6 +7,20 @@ import Node, {
     type PinKind,
 } from "./Node";
 import Toolbar, { type Tool } from "./Toolbar";
+
+const FILE_VERSION = 1;
+
+interface WorkspaceProps {
+    filePath: string;
+    active: boolean;
+}
+
+type SaveData = {
+    version: number;
+    nodes: NodeInstance[];
+    connections: Connection[];
+    junctions: Junction[];
+};
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
@@ -53,15 +68,11 @@ type ClipboardData = {
     }[];
 };
 
-export default function Workspace() {
+export default function Workspace({ filePath, active }: WorkspaceProps) {
     const [offset, setOffset] = useState({ x: 0, y: 0 });
     const [scale, setScale] = useState(MAX_SCALE);
     const [isDragging, setIsDragging] = useState(false);
-    const [nodes, setNodes] = useState<NodeInstance[]>([
-        { id: "1", kind: "not", x: 30, y: 30 },
-        { id: "2", kind: "and", x: 60, y: 30 },
-        { id: "3", kind: "or", x: 90, y: 30 },
-    ]);
+    const [nodes, setNodes] = useState<NodeInstance[]>([]);
     const [connections, setConnections] = useState<Connection[]>([]);
     const [junctions, setJunctions] = useState<Junction[]>([]);
     const [pending, setPending] = useState<Pending | null>(null);
@@ -112,7 +123,7 @@ export default function Workspace() {
         worldY: number;
         targetNodeId: string | null;
     } | null>(null);
-    const nextIdRef = useRef(4);
+    const nextIdRef = useRef(1);
     const nextConnIdRef = useRef(0);
 
     function deleteConnection(id: string) {
@@ -289,9 +300,61 @@ export default function Workspace() {
         spawnClipboard(clipboard, dx, dy);
     }
 
+    // load file contents into workspace on mount / when file path changes
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const text = await readTextFile(filePath);
+                if (cancelled) return;
+                if (!text.trim()) {
+                    setNodes([]);
+                    setConnections([]);
+                    setJunctions([]);
+                    nextIdRef.current = 1;
+                    nextConnIdRef.current = 0;
+                    nextJunctionIdRef.current = 0;
+                    return;
+                }
+                const data = JSON.parse(text) as Partial<SaveData>;
+                const loadedNodes = data.nodes ?? [];
+                const loadedConns = data.connections ?? [];
+                const loadedJuncs = data.junctions ?? [];
+                setNodes(loadedNodes);
+                setConnections(loadedConns);
+                setJunctions(loadedJuncs);
+                let maxN = 0;
+                for (const n of loadedNodes) {
+                    const m = parseInt(n.id, 10);
+                    if (!isNaN(m) && m > maxN) maxN = m;
+                }
+                let maxC = -1;
+                for (const c of loadedConns) {
+                    const m = parseInt(c.id.replace(/^c/, ""), 10);
+                    if (!isNaN(m) && m > maxC) maxC = m;
+                }
+                let maxJ = -1;
+                for (const j of loadedJuncs) {
+                    const m = parseInt(j.id.replace(/^j/, ""), 10);
+                    if (!isNaN(m) && m > maxJ) maxJ = m;
+                }
+                nextIdRef.current = maxN + 1;
+                nextConnIdRef.current = maxC + 1;
+                nextJunctionIdRef.current = maxJ + 1;
+            } catch (err) {
+                console.error("workspace load failed:", err);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [filePath]);
+
     // keyboard shortcuts (delete/copy/paste/duplicate + shift-to-select)
     const stateRef = useRef({
         nodes,
+        connections,
+        junctions,
         selectedIds,
         selectedJunctionIds,
         clipboard,
@@ -299,11 +362,30 @@ export default function Workspace() {
     });
     stateRef.current = {
         nodes,
+        connections,
+        junctions,
         selectedIds,
         selectedJunctionIds,
         clipboard,
         tool,
     };
+
+    async function saveFile() {
+        const data: SaveData = {
+            version: FILE_VERSION,
+            nodes: stateRef.current.nodes,
+            connections: stateRef.current.connections,
+            junctions: stateRef.current.junctions,
+        };
+        try {
+            await writeTextFile(filePath, JSON.stringify(data, null, 2));
+        } catch (err) {
+            console.error("workspace save failed:", err);
+        }
+    }
+
+    const activeRef = useRef(active);
+    activeRef.current = active;
     const opsRef = useRef({
         copy: copyNodes,
         paste: pasteClipboard,
@@ -357,6 +439,13 @@ export default function Workspace() {
             const hasNodes = selectedIds.length > 0;
             const hasJunctions = selectedJunctionIds.length > 0;
             const hasAny = hasNodes || hasJunctions;
+
+            if (mod && k === "s") {
+                if (!activeRef.current) return;
+                e.preventDefault();
+                saveFile();
+                return;
+            }
 
             if (hasAny && (e.key === "Backspace" || e.key === "Delete")) {
                 e.preventDefault();

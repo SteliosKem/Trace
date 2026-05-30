@@ -10,6 +10,7 @@ import {
     type DirEntry,
     type UnwatchFn,
 } from "@tauri-apps/plugin-fs";
+import { message } from "@tauri-apps/plugin-dialog";
 import { sep } from "@tauri-apps/api/path";
 
 const SIDEBAR_MIN = 160;
@@ -34,6 +35,13 @@ export default function Editor({ projectPath }: { projectPath: string }) {
 
     function openFile(entry: DirEntry, fullPath: string) {
         if (entry.isDirectory) return;
+        if (!entry.name.toLowerCase().endsWith(".comp")) {
+            message("Only .comp files can be opened in the workspace.", {
+                title: "Unsupported file",
+                kind: "info",
+            });
+            return;
+        }
         const id = fullPath;
         setActiveId(id);
         setOpenTabs((prev) => {
@@ -171,7 +179,7 @@ export default function Editor({ projectPath }: { projectPath: string }) {
                                     display: t.id === activeId ? "flex" : "none",
                                 }}
                             >
-                                <Workspace />
+                                <Workspace filePath={t.id} active={t.id === activeId} />
                             </div>
                         ))
                     )}
